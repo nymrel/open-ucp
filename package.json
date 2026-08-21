@@ -34,6 +34,8 @@
     "dist",
     "bin",
     "src",
+    "cloudflare",
+    "wrangler.toml",
     "README.md",
     "LICENSE",
     "llms.txt"
