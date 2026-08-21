@@ -114,7 +114,7 @@ async function handleInit(args) {
         parentOrganization: {
           name: 'Nymrel',
           legalEntity: 'JalenBuilds LLC',
-          url: 'https://jalenbuilds.com'
+          url: 'https://nymrel.com'
         },
         url,
         contactEmail: email,

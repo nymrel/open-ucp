@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 class ParentOrganization:
     name: str = "Nymrel"
     legal_entity: str = "JalenBuilds LLC"
-    url: Optional[str] = "https://jalenbuilds.com"
+    url: Optional[str] = "https://nymrel.com"
     duns: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:

@@ -27,7 +27,7 @@ export class UCPManifestBuilder {
         parentOrganization: {
           name: 'Nymrel',
           legalEntity: 'JalenBuilds LLC',
-          url: 'https://jalenbuilds.com'
+          url: 'https://nymrel.com'
         },
         url: 'https://nymrel.com',
         contactEmail: 'contact@nymrel.com',
