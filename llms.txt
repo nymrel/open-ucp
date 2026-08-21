@@ -5,7 +5,7 @@
 ## Entity Trust Graph
 - Organization: Nymrel
 - Parent Entity: JalenBuilds LLC
-- Contact: contact@jalenbuilds.com
+- Contact: contact@nymrel.com
 - Repository: https://github.com/nymrel/open-ucp
 - Protocol Version: UCP/1.0.0
 

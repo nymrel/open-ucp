@@ -26,7 +26,7 @@ class TestUCPCore(unittest.TestCase):
         manifest = create_default_manifest(
             name="Alpha Agent Services",
             url="https://alpha.nymrel.com",
-            contact_email="contact@jalenbuilds.com",
+            contact_email="contact@nymrel.com",
             pay_to="0xAlphaVault12345"
         )
         self.assertEqual(manifest["entity"]["name"], "Alpha Agent Services")

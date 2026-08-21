@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "description": "Zero-dependency Universal Commerce Protocol (UCP) & Agentic Purchasing Engine for TypeScript and Node.js",
-  "author": "Jalen <contact@jalenbuilds.com>",
+  "author": "Jalen <contact@nymrel.com>",
   "license": "MIT",
   "homepage": "https://github.com/nymrel/open-ucp#readme",
   "repository": {

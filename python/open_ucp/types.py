@@ -32,7 +32,7 @@ class EntityTrust:
     legal_name: str = "Nymrel"
     parent_organization: ParentOrganization = field(default_factory=ParentOrganization)
     url: str = "https://nymrel.com"
-    contact_email: str = "contact@jalenbuilds.com"
+    contact_email: str = "contact@nymrel.com"
     description: str = "Autonomous commerce, programmatic negotiation & agent checkout infrastructure"
     verified: bool = True
     machine_trust_score: float = 0.99

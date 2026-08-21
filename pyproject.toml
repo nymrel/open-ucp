@@ -7,7 +7,7 @@ name = "open-ucp"
 version = "1.0.0"
 description = "Universal Commerce Protocol (UCP) & Agentic Purchasing Engine for Python & FastAPI"
 readme = "README.md"
-authors = [{ name = "Jalen", email = "contact@jalenbuilds.com" }]
+authors = [{ name = "Jalen", email = "contact@nymrel.com" }]
 license = { text = "MIT" }
 keywords = ["ucp", "universal-commerce-protocol", "agentic-purchasing", "ai-agents", "x402", "ap2", "fastapi"]
 classifiers = [

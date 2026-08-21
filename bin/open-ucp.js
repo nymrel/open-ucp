@@ -102,7 +102,7 @@ async function handleInit(args) {
 
   const name = parsed.name || 'Nymrel Autonomous Store';
   const url = parsed.url || 'https://example.com';
-  const email = parsed.email || 'contact@jalenbuilds.com';
+  const email = parsed.email || 'contact@nymrel.com';
 
   const starterConfig = {
     manifest: {
@@ -320,7 +320,7 @@ async function handleServe(args) {
           legalName: 'Nymrel',
           parentOrganization: { name: 'Nymrel', legalEntity: 'JalenBuilds LLC' },
           url: `http://localhost:${port}`,
-          contactEmail: 'contact@jalenbuilds.com',
+          contactEmail: 'contact@nymrel.com',
           verified: true,
           machineTrustScore: 0.99
         },

@@ -30,7 +30,7 @@ export class UCPManifestBuilder {
           url: 'https://jalenbuilds.com'
         },
         url: 'https://nymrel.com',
-        contactEmail: 'contact@jalenbuilds.com',
+        contactEmail: 'contact@nymrel.com',
         description: 'Autonomous commerce, programmatic negotiation & agent checkout infrastructure',
         verified: true,
         machineTrustScore: 0.99
@@ -164,7 +164,7 @@ export function createDefaultManifest(options?: {
     builder.setEntity({
       name: options.name || 'Nymrel Merchant',
       url: options.url || 'https://example.com',
-      contactEmail: options.contactEmail || 'contact@jalenbuilds.com'
+      contactEmail: options.contactEmail || 'contact@nymrel.com'
     });
   }
   if (options?.payTo || options?.network) {

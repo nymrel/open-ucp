@@ -179,7 +179,7 @@ def create_default_manifest(
         builder.set_entity(
             name=name or "Nymrel Merchant",
             url=url or "https://example.com",
-            contactEmail=contact_email or "contact@jalenbuilds.com"
+            contactEmail=contact_email or "contact@nymrel.com"
         )
     if pay_to:
         builder.set_payment_rails({

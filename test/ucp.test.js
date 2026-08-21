@@ -43,7 +43,7 @@ describe('1. Core Manifest & Entity Trust', () => {
     const custom = createDefaultManifest({
       name: 'Custom Agent Node',
       url: 'https://agent-node.ai',
-      contactEmail: 'contact@jalenbuilds.com',
+      contactEmail: 'contact@nymrel.com',
       payTo: '0x1234567890abcdef1234567890abcdef12345678'
     });
 

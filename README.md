@@ -92,7 +92,7 @@ catalog.addProduct({
 const manifest = createDefaultManifest({
   name: 'My Compute Cloud',
   url: 'https://mycompute.ai',
-  contactEmail: 'contact@jalenbuilds.com',
+  contactEmail: 'contact@nymrel.com',
   payTo: '0xYourMerchantVaultAddress'
 });
 
@@ -166,7 +166,7 @@ catalog.add_product(ProductOffer(
 manifest = create_default_manifest(
     name="Python Vector Hub",
     url="https://vectorhub.ai",
-    contact_email="contact@jalenbuilds.com",
+    contact_email="contact@nymrel.com",
     pay_to="0xVectorVaultAddress"
 )
 
@@ -240,4 +240,4 @@ python -m unittest discover -s python/tests -p "test_*.py" -v
 
 ## 📄 License & Attribution
 
-MIT License. Copyright (c) 2026 **Nymrel / JalenBuilds LLC**. Default contact: `contact@jalenbuilds.com`.
+MIT License. Copyright (c) 2026 **Nymrel / JalenBuilds LLC**. Default contact: `contact@nymrel.com`.

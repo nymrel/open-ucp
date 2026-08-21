@@ -12,7 +12,7 @@ The security of autonomous agentic commerce, cryptographic quote signatures, and
 
 If you discover a security vulnerability within `open-ucp`, please do **not** report it in public GitHub issues. Instead, please follow responsible disclosure:
 
-1. **Email:** Send details directly to `contact@jalenbuilds.com` with the subject `[SECURITY] open-ucp vulnerability report`.
+1. **Email:** Send details directly to `contact@nymrel.com` with the subject `[SECURITY] open-ucp vulnerability report`.
 2. **Details:** Include a reproducible proof-of-concept, description of the vulnerability, affected components, and potential impact.
 3. **Response Time:** We aim to acknowledge receipt within 24 hours and provide a timeline for patch verification and coordinated disclosure.
 

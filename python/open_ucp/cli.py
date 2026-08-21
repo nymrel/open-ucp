@@ -26,7 +26,7 @@ def main():
     init_parser = subparsers.add_parser("init", help="Scaffold a ucp.config.json file")
     init_parser.add_argument("--name", default="Nymrel Autonomous Store", help="Merchant Name")
     init_parser.add_argument("--url", default="https://example.com", help="Canonical URL")
-    init_parser.add_argument("--email", default="contact@jalenbuilds.com", help="Contact Email")
+    init_parser.add_argument("--email", default="contact@nymrel.com", help="Contact Email")
 
     # validate
     val_parser = subparsers.add_parser("validate", help="Validate a UCP manifest file or URL")
