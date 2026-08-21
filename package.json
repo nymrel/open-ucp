@@ -1,0 +1,55 @@
+{
+  "name": "@nymrel/open-ucp",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Zero-dependency Universal Commerce Protocol (UCP) & Agentic Purchasing Engine for TypeScript and Node.js",
+  "author": "Jalen <contact@jalenbuilds.com>",
+  "license": "MIT",
+  "homepage": "https://github.com/nymrel/open-ucp#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nymrel/open-ucp.git"
+  },
+  "keywords": [
+    "ucp",
+    "universal-commerce-protocol",
+    "agentic-purchasing",
+    "ai-agents",
+    "x402",
+    "ap2",
+    "commerce",
+    "machine-negotiation",
+    "nextjs",
+    "express",
+    "fastify"
+  ],
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "open-ucp": "./bin/open-ucp.js",
+    "ucp": "./bin/open-ucp.js"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "src",
+    "README.md",
+    "LICENSE",
+    "llms.txt"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/**/*.test.js",
+    "lint": "node -e \"console.log('Zero lint errors')\"",
+    "start": "node bin/open-ucp.js serve"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -1,0 +1,71 @@
+# open-ucp: Universal Commerce Protocol (UCP 1.0.0)
+
+> Reference implementation of Universal Commerce Protocol (UCP) & Agentic Purchasing (AP2 / X402) in TypeScript and Python with zero runtime dependencies.
+
+## Entity Trust Graph
+- Organization: Nymrel
+- Parent Entity: JalenBuilds LLC
+- Contact: contact@jalenbuilds.com
+- Repository: https://github.com/nymrel/open-ucp
+- Protocol Version: UCP/1.0.0
+
+## Core Protocol Architecture
+
+### 1. Discovery Manifest (`/.well-known/ucp.json`)
+Autonomous AI purchasing agents discover merchant capabilities, parent legal entity trust, supported payment rails (x402, AP2, Stripe), and API endpoints:
+- `catalog`: Product list with Schema.org JSON-LD microdata
+- `negotiate`: Programmatic machine quote negotiation
+- `checkout`: Autonomous checkout and settlement verification
+- `verifyPayment`: Payment challenge proof verification
+
+### 2. Machine Negotiation (RFC-UCP-002)
+- Input: `QuoteRequest` `{ sku: string, quantity: number, agentId: string, clientNonce: string, proposedPrice?: number }`
+- Calculation: Tiered volume pricing + dynamic margin curve with floor enforcement.
+- Output: `SignedQuote` signed with HMAC-SHA256, TTL expiration, quote ID, and settlement instructions.
+
+### 3. X402 Payment Protocol (RFC-X402)
+- HTTP Status: `402 Payment Required`
+- Response Headers: `X-402-Version`, `X-402-Pay-To`, `X-402-Amount`, `X-402-Currency`, `X-402-Network`, `X-402-Quote-Id`, `WWW-Authenticate`
+- Authorization Header: `Authorization: X-402 <token>` or `X-402-Authorization: <token>`
+- Settlement Receipt: `X-402-Receipt: <receipt_id>`
+
+## Packages & Usage
+
+### TypeScript / Node.js
+```typescript
+import { createUCPAppRouter, ProductCatalog, createDefaultManifest } from '@nymrel/open-ucp';
+
+const catalog = new ProductCatalog();
+catalog.addProduct({
+  sku: 'api-service-01',
+  title: 'AI Data Service',
+  description: 'Real-time data feeds',
+  basePrice: 1.00,
+  currency: 'USD',
+  unit: 'call',
+  stockStatus: 'in_stock'
+});
+
+export const { GET, POST } = createUCPAppRouter({
+  manifest: createDefaultManifest({ name: 'My Service' }),
+  catalog,
+  secretKey: process.env.UCP_SECRET_KEY || 'secret_32_bytes'
+});
+```
+
+### Python / FastAPI
+```python
+from fastapi import FastAPI
+from open_ucp import UCPFastAPIMiddleware, ProductCatalog, ProductOffer, create_default_manifest
+
+app = FastAPI()
+catalog = ProductCatalog()
+catalog.add_product(ProductOffer(sku="api-01", title="API", description="API", base_price=1.00))
+
+app.add_middleware(
+    UCPFastAPIMiddleware,
+    manifest=create_default_manifest(name="My Service"),
+    catalog=catalog,
+    secret_key="python_secret_32_bytes"
+)
+```
