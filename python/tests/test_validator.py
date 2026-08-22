@@ -104,6 +104,36 @@ class TestCanonicalOriginVerification(unittest.TestCase):
         self.assertFalse(result["valid"])
         self.assertIn("llmsTxtUrl", self.issue_paths(result))
 
+    def test_absolute_https_endpoints_rejected_when_canonical_origin_unavailable(self):
+        for url in ["http://nymrel.com", "https://localhost", "https://192.168.1.10", "https://user:pass@nymrel.com", "not-a-url"]:
+            with self.subTest(url=url):
+                def mutate(m, u=url):
+                    m["entity"]["url"] = u
+                    m["endpoints"]["catalog"] = "https://nymrel.com/api/ucp/catalog"
+                result = self.validate_mutation(mutate)
+                self.assertFalse(result["valid"])
+                paths = self.issue_paths(result)
+                self.assertIn("entity.url", paths)
+                self.assertIn("endpoints.catalog", paths)
+
+    def test_absolute_https_llms_txt_url_rejected_when_canonical_origin_unavailable(self):
+        def mutate(m):
+            m["entity"]["url"] = "http://127.0.0.1:8080"
+            m["llmsTxtUrl"] = "https://nymrel.com/llms.txt"
+        result = self.validate_mutation(mutate)
+        self.assertFalse(result["valid"])
+        paths = self.issue_paths(result)
+        self.assertIn("entity.url", paths)
+        self.assertIn("llmsTxtUrl", paths)
+
+    def test_rooted_relative_paths_stay_evaluable_with_invalid_entity_url(self):
+        result = self.validate_mutation(lambda m: m["entity"].__setitem__("url", "http://127.0.0.1:8080"))
+        self.assertFalse(result["valid"])
+        paths = self.issue_paths(result)
+        self.assertIn("entity.url", paths)
+        self.assertFalse(any(p.startswith("endpoints.") for p in paths))
+        self.assertNotIn("llmsTxtUrl", paths)
+
 
 if __name__ == "__main__":
     unittest.main()

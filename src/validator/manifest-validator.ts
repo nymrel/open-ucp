@@ -116,7 +116,9 @@ function checkPublicHttpsUrl(value: string): UrlCheck {
  * Machine-action URL policy: a rooted relative path ("/api/...") resolved
  * against the serving origin, or an absolute HTTPS URL on the entity's
  * canonical origin. Rejects cross-origin, HTTP, protocol-relative,
- * credential-bearing, and malformed values.
+ * credential-bearing, and malformed values. Fails closed when no canonical
+ * origin can be established (invalid entity URL): absolute URLs are rejected,
+ * while rooted relative paths remain evaluable.
  */
 function checkMachineActionUrl(value: string, canonicalOrigin: string | null): UrlCheck {
   if (value.startsWith('//')) {
@@ -140,7 +142,12 @@ function checkMachineActionUrl(value: string, canonicalOrigin: string | null): U
   if (url.username || url.password) {
     return { ok: false, reason: 'credential-bearing URLs are not allowed' };
   }
-  if (canonicalOrigin && url.origin !== canonicalOrigin) {
+  if (!canonicalOrigin) {
+    // Fail closed: without a valid entity URL no canonical origin can be
+    // established, so absolute machine-action URLs cannot be pinned.
+    return { ok: false, reason: 'canonical origin unavailable; absolute machine-action URLs require a valid public HTTPS entity URL' };
+  }
+  if (url.origin !== canonicalOrigin) {
     return { ok: false, reason: `cross-origin URLs are not allowed (expected origin ${canonicalOrigin})` };
   }
   return { ok: true };

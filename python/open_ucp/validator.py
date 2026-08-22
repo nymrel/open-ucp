@@ -73,7 +73,9 @@ def _check_machine_action_url(value: str, canonical_origin: Optional[str]) -> Tu
     """
     Machine-action URL policy: a rooted relative path ("/api/...") resolved
     against the serving origin, or an absolute HTTPS URL on the entity's
-    canonical origin.
+    canonical origin. Fails closed when no canonical origin can be
+    established (invalid entity URL): absolute URLs are rejected, while
+    rooted relative paths remain evaluable.
     """
     if value.startswith("//"):
         return False, "protocol-relative URLs are ambiguous; use a rooted relative path or an absolute HTTPS URL on the entity origin"
@@ -89,7 +91,11 @@ def _check_machine_action_url(value: str, canonical_origin: Optional[str]) -> Tu
             return False, "absolute machine-action URLs must use HTTPS"
         if parts.username or parts.password:
             return False, "credential-bearing URLs are not allowed"
-        if canonical_origin is not None and _https_origin(parts) != canonical_origin:
+        if canonical_origin is None:
+            # Fail closed: without a valid entity URL no canonical origin can
+            # be established, so absolute machine-action URLs cannot be pinned.
+            return False, "canonical origin unavailable; absolute machine-action URLs require a valid public HTTPS entity URL"
+        if _https_origin(parts) != canonical_origin:
             return False, f"cross-origin URLs are not allowed (expected origin {canonical_origin})"
     except ValueError:
         return False, "malformed URL"

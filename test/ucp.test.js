@@ -425,4 +425,37 @@ describe('7. Canonical Origin Verification', () => {
     assert.strictEqual(res.valid, false);
     assert.ok(issuePaths(res).includes('llmsTxtUrl'));
   });
+
+  test('rejects absolute HTTPS endpoint URLs when canonical origin cannot be established', () => {
+    for (const url of ['http://nymrel.com', 'https://localhost', 'https://192.168.1.10', 'https://user:pass@nymrel.com', 'not-a-url']) {
+      const res = validateMutation(m => {
+        m.entity.url = url;
+        m.endpoints.catalog = 'https://nymrel.com/api/ucp/catalog';
+      });
+      assert.strictEqual(res.valid, false, `expected rejection for entity URL ${url}`);
+      const paths = issuePaths(res);
+      assert.ok(paths.includes('entity.url'), `expected entity.url issue for ${url}`);
+      assert.ok(paths.includes('endpoints.catalog'), `expected endpoints.catalog issue for ${url}`);
+    }
+  });
+
+  test('rejects absolute HTTPS llmsTxtUrl when canonical origin cannot be established', () => {
+    const res = validateMutation(m => {
+      m.entity.url = 'http://127.0.0.1:8080';
+      m.llmsTxtUrl = 'https://nymrel.com/llms.txt';
+    });
+    assert.strictEqual(res.valid, false);
+    const paths = issuePaths(res);
+    assert.ok(paths.includes('entity.url'));
+    assert.ok(paths.includes('llmsTxtUrl'));
+  });
+
+  test('rooted relative paths stay evaluable while the invalid entity URL remains an error', () => {
+    const res = validateMutation(m => { m.entity.url = 'http://127.0.0.1:8080'; });
+    assert.strictEqual(res.valid, false);
+    const paths = issuePaths(res);
+    assert.ok(paths.includes('entity.url'));
+    assert.ok(!paths.some(p => p.startsWith('endpoints.')));
+    assert.ok(!paths.includes('llmsTxtUrl'));
+  });
 });
