@@ -338,3 +338,91 @@ describe('6. Next.js App Router Adapter', () => {
     assert.strictEqual(quoteBody.status, 'accepted');
   });
 });
+
+describe('7. Canonical Origin Verification', () => {
+  const base = createDefaultManifest();
+
+  function validateMutation(mutate) {
+    const manifest = JSON.parse(JSON.stringify(base));
+    mutate(manifest);
+    return ManifestValidator.validate(manifest);
+  }
+
+  function issuePaths(res) {
+    return res.issues.map(i => i.path);
+  }
+
+  test('accepts default manifest with relative endpoints and public HTTPS entity URL', () => {
+    const res = ManifestValidator.validate(JSON.parse(JSON.stringify(base)));
+    assert.strictEqual(res.valid, true);
+    const paths = issuePaths(res);
+    assert.ok(!paths.includes('entity.url'));
+    assert.ok(!paths.some(p => p.startsWith('endpoints.')));
+    assert.ok(!paths.includes('llmsTxtUrl'));
+  });
+
+  test('accepts same-origin absolute HTTPS endpoint URLs', () => {
+    const res = validateMutation(m => {
+      m.endpoints.catalog = 'https://nymrel.com/api/ucp/catalog';
+      m.llmsTxtUrl = 'https://nymrel.com/llms.txt';
+    });
+    assert.strictEqual(res.valid, true);
+  });
+
+  test('rejects non-HTTPS entity URLs', () => {
+    const res = validateMutation(m => { m.entity.url = 'http://nymrel.com'; });
+    assert.strictEqual(res.valid, false);
+    assert.ok(issuePaths(res).includes('entity.url'));
+  });
+
+  test('rejects loopback and private-network entity URLs', () => {
+    for (const url of ['https://localhost', 'http://127.0.0.1:8080', 'https://192.168.1.10', 'https://10.0.0.7']) {
+      const res = validateMutation(m => { m.entity.url = url; });
+      assert.strictEqual(res.valid, false, `expected rejection for ${url}`);
+      assert.ok(issuePaths(res).includes('entity.url'), `expected entity.url issue for ${url}`);
+    }
+  });
+
+  test('rejects credential-bearing entity URLs', () => {
+    const res = validateMutation(m => { m.entity.url = 'https://user:pass@nymrel.com'; });
+    assert.strictEqual(res.valid, false);
+    assert.ok(issuePaths(res).includes('entity.url'));
+  });
+
+  test('rejects cross-origin endpoint URLs', () => {
+    const res = validateMutation(m => { m.endpoints.checkout = 'https://evil.example.com/api/ucp/checkout'; });
+    assert.strictEqual(res.valid, false);
+    assert.ok(issuePaths(res).includes('endpoints.checkout'));
+  });
+
+  test('rejects HTTP machine-action URLs', () => {
+    const res = validateMutation(m => {
+      m.endpoints.negotiate = 'http://nymrel.com/api/ucp/negotiate';
+      m.llmsTxtUrl = 'http://nymrel.com/llms.txt';
+    });
+    assert.strictEqual(res.valid, false);
+    const paths = issuePaths(res);
+    assert.ok(paths.includes('endpoints.negotiate'));
+    assert.ok(paths.includes('llmsTxtUrl'));
+  });
+
+  test('rejects credential-bearing and malformed endpoint URLs', () => {
+    const cred = validateMutation(m => { m.endpoints.catalog = 'https://agent:secret@nymrel.com/api/ucp/catalog'; });
+    assert.strictEqual(cred.valid, false);
+    assert.ok(issuePaths(cred).includes('endpoints.catalog'));
+
+    const malformed = validateMutation(m => { m.endpoints.catalog = 'api/ucp/catalog'; });
+    assert.strictEqual(malformed.valid, false);
+    assert.ok(issuePaths(malformed).includes('endpoints.catalog'));
+
+    const protoRelative = validateMutation(m => { m.endpoints.catalog = '//cdn.example.com/api/ucp/catalog'; });
+    assert.strictEqual(protoRelative.valid, false);
+    assert.ok(issuePaths(protoRelative).includes('endpoints.catalog'));
+  });
+
+  test('rejects cross-origin llmsTxtUrl', () => {
+    const res = validateMutation(m => { m.llmsTxtUrl = 'https://docs.example.net/llms.txt'; });
+    assert.strictEqual(res.valid, false);
+    assert.ok(issuePaths(res).includes('llmsTxtUrl'));
+  });
+});
