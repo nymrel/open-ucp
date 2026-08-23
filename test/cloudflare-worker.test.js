@@ -7,9 +7,25 @@
 
 import { test, describe } from 'node:test';
 import * as assert from 'node:assert';
-import { handleRequest } from '../cloudflare/worker.ts';
 
-describe('7. Cloudflare Worker Edge Micro-Adapter Tests', () => {
+// The worker adapter is authored in TypeScript. Node >= 22.6 loads it directly
+// via --experimental-strip-types (see test/run.mjs); older versions cannot,
+// so the suite skips itself instead of failing the whole run.
+const worker = await import('../cloudflare/worker.ts').then(
+  (m) => m,
+  (err) => {
+    if (err && err.code === 'ERR_UNKNOWN_FILE_EXTENSION') {
+      console.log('# Skipping Cloudflare Worker suite: this Node version cannot load .ts directly (requires >= 22.6).');
+      return null;
+    }
+    throw err;
+  }
+);
+
+const describeWorker = worker ? describe : describe.skip;
+
+describeWorker('7. Cloudflare Worker Edge Micro-Adapter Tests', () => {
+  const { handleRequest } = worker ?? {};
   const env = {
     UCP_SECRET_KEY: 'test_cloudflare_worker_secret_key_12345',
     PAY_TO: '0x71C8F7aD9A208D1767677aB713A7Ef2b72449Fec',

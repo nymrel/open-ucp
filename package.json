@@ -43,7 +43,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "node --test test/**/*.test.js",
+    "test": "node test/run.mjs",
     "lint": "node -e \"console.log('Zero lint errors')\"",
     "start": "node bin/open-ucp.js serve",
     "prepublishOnly": "npm run build && npm test"
