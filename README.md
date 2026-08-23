@@ -10,7 +10,7 @@
 
 ---
 
-## ⚡ Show HN: Programmatic Commerce for Autonomous AI Agents
+## ⚡ Programmatic Commerce for Autonomous AI Agents
 
 Today's AI agents can reason, code, and browse, but when it comes to purchasing APIs, compute slots, or digital services, they hit a brick wall of human checkout forms, captchas, and credit card modals.
 
@@ -21,7 +21,7 @@ Today's AI agents can reason, code, and browse, but when it comes to purchasing 
 * 🤝 **Machine Negotiation Engine (RFC-UCP-002):** Dynamic programmatic quotes, volume margin curves, and cryptographic HMAC-SHA256 tamper-proof quote signatures.
 * 💳 **X402 Payment Required Engine (RFC-X402):** Native HTTP 402 challenge-response payment protocol for USDC, Solana, Base, Lightning, and Stripe.
 * 🔍 **Dual-Audience Machine Trust:** Built-in JSON-LD parity verification, Schema.org product alignment, and parent organization verification (`Nymrel -> JalenBuilds LLC`).
-* 📦 **Zero Runtime Dependencies:** Native TypeScript & Python stdlib implementations with 100% test coverage.
+* 📦 **Zero Runtime Dependencies:** Native TypeScript & Python stdlib implementations with complete test suites.
 
 ---
 
@@ -39,7 +39,8 @@ Today's AI agents can reason, code, and browse, but when it comes to purchasing 
          │     Entity Trust, Endpoints, Capabilities, Payment Rails    │
          │                                                             │
          │  2. Programmatic Quote: POST /api/ucp/negotiate             │
-         │     { sku: "compute-h100", qty: 100, proposedPrice: 0.08 }   │
+         │     { sku, quantity, agentId, clientNonce,                  │
+         │       proposedPrice? }                                      │
          ├────────────────────────────────────────────────────────────►│ (Evaluates Volume Tiers,
          │  ◄──────────────────────────────────────────────────────────┤  Dynamic Margin Curve &
          │     Signed Quote (HMAC-SHA256, TTL 300s, Quote ID)          │  Cryptographic Signature)
@@ -54,9 +55,16 @@ Today's AI agents can reason, code, and browse, but when it comes to purchasing 
 
 ---
 
-## 🚀 Quickstarts
+## 🚀 Framework Matrix
 
-### 1. Next.js App Router (1-Minute Setup)
+| Framework | Install | Adapter entry point |
+| --- | --- | --- |
+| **Next.js (App Router)** | `npm install @nymrel/open-ucp` | [`createUCPAppRouter`](#1-nextjs-app-router) |
+| **Express** | `npm install @nymrel/open-ucp express` | [`ucpExpressMiddleware`](#2-express) |
+| **Fastify** | `npm install @nymrel/open-ucp @fastify/express` | [`ucpExpressMiddleware` via compat](#3-fastify-via-compatibility-plugin) |
+| **FastAPI** | `pip install open-ucp` | [`UCPFastAPIMiddleware`](#4-fastapi-asgi-middleware) |
+
+### 1. Next.js App Router
 
 Install:
 ```bash
@@ -69,46 +77,32 @@ import { createUCPAppRouter, ProductCatalog, createDefaultManifest } from '@nymr
 
 const catalog = new ProductCatalog();
 catalog.addProduct({
-  sku: 'ai-gpu-hour',
-  title: 'Dedicated GPU Instance (1 Hour)',
-  description: '80GB VRAM compute slot for autonomous AI inference',
-  basePrice: 2.50,
+  sku: 'starter-pack',
+  title: 'Starter Data Pack',
+  description: 'Instant digital download pack',
+  basePrice: 5.00,
   currency: 'USD',
-  unit: 'hour',
-  stockStatus: 'in_stock',
-  pricingTiers: [
-    { minQuantity: 1, unitPrice: 2.50, discountPercent: 0 },
-    { minQuantity: 10, unitPrice: 2.00, discountPercent: 20 },
-    { minQuantity: 100, unitPrice: 1.50, discountPercent: 40 }
-  ],
-  negotiationRules: {
-    allowNegotiation: true,
-    minAcceptablePrice: 1.40,
-    maxDiscountPercent: 44,
-    volumeSensitivity: 0.8
-  }
-});
-
-const manifest = createDefaultManifest({
-  name: 'My Compute Cloud',
-  url: 'https://mycompute.ai',
-  contactEmail: 'contact@nymrel.com',
-  payTo: '0xYourMerchantVaultAddress'
+  unit: 'download',
+  stockStatus: 'in_stock'
 });
 
 const ucp = createUCPAppRouter({
-  manifest,
+  manifest: createDefaultManifest({ name: 'My Digital Store' }),
   catalog,
-  secretKey: process.env.UCP_SECRET_KEY || 'super_secret_signing_key_32_bytes'
+  // Signing key for HMAC quote signatures. Required — never hardcode one.
+  secretKey: process.env.UCP_SECRET_KEY!
 });
 
 export const GET = ucp.GET;
 export const POST = ucp.POST;
 ```
 
----
+### 2. Express
 
-### 2. Express.js / Fastify Middleware
+Install:
+```bash
+npm install @nymrel/open-ucp express
+```
 
 ```typescript
 import express from 'express';
@@ -119,7 +113,7 @@ app.use(express.json());
 
 const catalog = new ProductCatalog();
 catalog.addProduct({
-  sku: 'market-oracle-feed',
+  sku: 'oracle-feed',
   title: 'Real-Time Oracle Stream',
   description: 'Low latency financial data feed',
   basePrice: 0.10,
@@ -131,23 +125,58 @@ catalog.addProduct({
 app.use(ucpExpressMiddleware({
   manifest: createDefaultManifest({ name: 'Oracle Merchant' }),
   catalog,
-  secretKey: 'merchant_signing_secret'
+  secretKey: process.env.UCP_SECRET_KEY!
 }));
 
 app.listen(4020, () => console.log('UCP Node running on port 4020'));
 ```
 
----
+### 3. Fastify (via compatibility plugin)
 
-### 3. Python / FastAPI (ASGI Middleware)
+The middleware targets Node's standard `(req, res, next)` signature, so Fastify apps mount it through the official `@fastify/express` compatibility plugin:
+
+Install:
+```bash
+npm install @nymrel/open-ucp @fastify/express fastify
+```
+
+```typescript
+import fastify from 'fastify';
+import fastifyExpress from '@fastify/express';
+import { ucpExpressMiddleware, ProductCatalog, createDefaultManifest } from '@nymrel/open-ucp';
+
+const app = fastify();
+await app.register(fastifyExpress);
+
+const catalog = new ProductCatalog();
+catalog.addProduct({
+  sku: 'oracle-feed',
+  title: 'Real-Time Oracle Stream',
+  description: 'Low latency financial data feed',
+  basePrice: 0.10,
+  currency: 'USD',
+  unit: 'query',
+  stockStatus: 'in_stock'
+});
+
+app.use(ucpExpressMiddleware({
+  manifest: createDefaultManifest({ name: 'Oracle Merchant' }),
+  catalog,
+  secretKey: process.env.UCP_SECRET_KEY!
+}));
+
+app.listen({ port: 4020 });
+```
+
+### 4. FastAPI (ASGI Middleware)
 
 Install:
 ```bash
 pip install open-ucp
 ```
 
-Usage in FastAPI:
 ```python
+import os
 from fastapi import FastAPI
 from open_ucp import UCPFastAPIMiddleware, ProductCatalog, ProductOffer, create_default_manifest
 
@@ -163,20 +192,172 @@ catalog.add_product(ProductOffer(
     stock_status="in_stock"
 ))
 
-manifest = create_default_manifest(
-    name="Python Vector Hub",
-    url="https://vectorhub.ai",
-    contact_email="contact@nymrel.com",
-    pay_to="0xVectorVaultAddress"
-)
-
 app.add_middleware(
     UCPFastAPIMiddleware,
-    manifest=manifest,
+    manifest=create_default_manifest(name="Python Vector Hub"),
     catalog=catalog,
-    secret_key="python_secret_signing_key"
+    secret_key=os.environ["UCP_SECRET_KEY"],
 )
 ```
+
+> **Security note:** every engine above signs quotes and verifies payment proofs with HMAC-SHA256 keyed by `secretKey`. Always load it from your environment or secret manager — never commit one, never ship a hardcoded fallback.
+
+---
+
+## 🧭 Walkthrough: Sell Your First Digital Product to an AI Agent
+
+Everything below runs locally in **TEST mode**: the payment destination is the placeholder zero address, all prices are dummy values, and no real funds move. You will need Node 18+.
+
+**Step 0 — Install and generate a local signing key:**
+
+```bash
+mkdir my-store && cd my-store
+npm init -y && npm install @nymrel/open-ucp express
+
+# Local development key (macOS/Linux)
+export UCP_SECRET_KEY="$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")"
+# PowerShell equivalent:
+# $env:UCP_SECRET_KEY = node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+**Step 1 — Define your digital product and mount the middleware.** Save as `server.mjs`:
+
+```javascript
+import express from 'express';
+import { ucpExpressMiddleware, ProductCatalog, createDefaultManifest } from '@nymrel/open-ucp';
+
+const app = express();
+app.use(express.json());
+
+const catalog = new ProductCatalog();
+catalog.addProduct({
+  sku: 'starter-pack',
+  title: 'Starter Data Pack',
+  description: 'Instant digital download pack',
+  basePrice: 5.00,
+  currency: 'USD',
+  unit: 'download',
+  stockStatus: 'in_stock',
+  pricingTiers: [
+    { minQuantity: 1, unitPrice: 5.00, discountPercent: 0 },
+    { minQuantity: 10, unitPrice: 4.00, discountPercent: 20 }
+  ],
+  negotiationRules: {
+    allowNegotiation: true,
+    minAcceptablePrice: 3.50,
+    maxDiscountPercent: 30
+  }
+});
+
+app.use(ucpExpressMiddleware({
+  manifest: createDefaultManifest({ name: 'My Digital Store', url: 'http://localhost:4020' }),
+  catalog,
+  secretKey: process.env.UCP_SECRET_KEY
+}));
+
+app.listen(4020, () => console.log('Merchant running at http://localhost:4020'));
+```
+
+```bash
+node server.mjs
+```
+
+**Step 2 — The agent discovers your store.** Any AI agent (or `curl`) fetches the manifest:
+
+```bash
+curl http://localhost:4020/.well-known/ucp.json
+```
+
+```json
+{
+  "ucpVersion": "1.0.0",
+  "protocol": "UCP/1.0",
+  "entity": {
+    "name": "My Digital Store",
+    "parentOrganization": { "name": "Nymrel", "legalEntity": "JalenBuilds LLC" },
+    "verified": true,
+    "machineTrustScore": 0.99
+  },
+  "capabilities": { "instantCheckout": true, "machineNegotiation": true, "x402Payments": true },
+  "endpoints": {
+    "catalog": "/api/ucp/catalog",
+    "negotiate": "/api/ucp/negotiate",
+    "checkout": "/api/ucp/checkout"
+  },
+  "paymentRails": {
+    "x402": { "enabled": true, "payTo": "0x0000000000000000000000000000000000000000", "defaultNetwork": "polygon" }
+  }
+}
+```
+
+**Step 3 — The agent requests a programmatic quote.** It asks for 10 units; the volume tier drops the unit price from 5.00 to 4.00 automatically:
+
+```bash
+curl -X POST http://localhost:4020/api/ucp/negotiate \
+  -H "Content-Type: application/json" \
+  -d '{"sku":"starter-pack","quantity":10,"agentId":"agent_demo_01","clientNonce":"nonce_001"}'
+```
+
+```json
+{
+  "quoteId": "ucp_quote_2ce9462083c13dd69946e3d8",
+  "sku": "starter-pack",
+  "quantity": 10,
+  "unitPrice": 4,
+  "totalPrice": 40,
+  "currency": "USD",
+  "discountPercent": 20,
+  "savings": 10,
+  "status": "accepted",
+  "expiresAt": "2026-08-23T11:25:21.636Z",
+  "signature": "f6334fd2ec9a7db43c91e7dee227ea3e9eae4c90db52b31d23f62f3dbc5d6783",
+  "settlementInstructions": {
+    "protocol": "x402",
+    "payTo": "0x0000000000000000000000000000000000000000",
+    "network": "polygon"
+  }
+}
+```
+
+The quote is HMAC-SHA256 signed and expires after 300 seconds. Tampering with any field invalidates the signature.
+
+**Step 4 — Settle in TEST mode.** In production the agent pays the `settlementInstructions` and presents a payment proof from an x402 verifier. In this local test loop, mint a signed proof token with the same library your server uses (save as `mint-test-proof.mjs`):
+
+```javascript
+import { X402PaymentHandler } from '@nymrel/open-ucp';
+
+const pay = new X402PaymentHandler({ secretKey: process.env.UCP_SECRET_KEY });
+const token = pay.createPaymentProofToken({
+  quoteId: process.argv[2],
+  amount: Number(process.argv[3]),
+  currency: 'USD',
+  payerId: 'agent_demo_01'
+});
+console.log(token); // e.g. x402_eyJxdW90ZUlkIjoi...
+```
+
+```bash
+TOKEN=$(node mint-test-proof.mjs ucp_quote_2ce9462083c13dd69946e3d8 40)
+
+curl -X POST http://localhost:4020/api/ucp/checkout \
+  -H "Content-Type: application/json" \
+  -d "{\"quote\":<paste the full quote JSON>,\"paymentProof\":\"$TOKEN\"}"
+```
+
+Response — sale settled, receipt issued:
+
+```json
+{
+  "status": "fulfilled",
+  "quoteId": "ucp_quote_2ce9462083c13dd69946e3d8",
+  "receiptId": "ucp_rcpt_a6f056524b0ff489567d2778",
+  "amountPaid": 40,
+  "currency": "USD",
+  "timestamp": "2026-08-23T11:26:02.114Z"
+}
+```
+
+**Going to production:** replace the zero-address `payTo` with your real destination via `createDefaultManifest({ payTo: '...' })`, swap the TEST-mode proof minter for a genuine x402 payment verification flow, and keep `UCP_SECRET_KEY` in your secret manager. Fulfillment hooks (`onCheckoutComplete`) let you deliver the download, license key, or API grant inside checkout.
 
 ---
 
@@ -223,9 +404,11 @@ Both TypeScript and Python engines include complete unit test suites testing man
 # Run TypeScript & Node.js tests
 npm test
 
-# Run Python tests
-python -m unittest discover -s python/tests -p "test_*.py" -v
+# Run Python tests (repo checkout: put the package on the path first)
+PYTHONPATH=./python python -m unittest discover -s python/tests -p "test_*.py"
 ```
+
+> On Windows PowerShell, set the path with `$env:PYTHONPATH = "./python"` first. If you installed the published wheel (`pip install open-ucp`), the `PYTHONPATH` prefix is unnecessary.
 
 ---
 

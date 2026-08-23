@@ -49,12 +49,13 @@ catalog.addProduct({
 export const { GET, POST } = createUCPAppRouter({
   manifest: createDefaultManifest({ name: 'My Service' }),
   catalog,
-  secretKey: process.env.UCP_SECRET_KEY || 'secret_32_bytes'
+  secretKey: process.env.UCP_SECRET_KEY! // required — never hardcode
 });
 ```
 
 ### Python / FastAPI
 ```python
+import os
 from fastapi import FastAPI
 from open_ucp import UCPFastAPIMiddleware, ProductCatalog, ProductOffer, create_default_manifest
 
@@ -66,6 +67,6 @@ app.add_middleware(
     UCPFastAPIMiddleware,
     manifest=create_default_manifest(name="My Service"),
     catalog=catalog,
-    secret_key="python_secret_32_bytes"
+    secret_key=os.environ["UCP_SECRET_KEY"]  # required — never hardcode
 )
 ```

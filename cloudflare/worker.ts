@@ -196,6 +196,13 @@ export async function handleRequest(request: Request, env: Env = {}): Promise<Re
     });
   }
 
+  // Fail closed in production: a static default signing key must never sign
+  // real quotes. Local/dev environments keep the default for convenience.
+  if (!env.UCP_SECRET_KEY && env.ENVIRONMENT === 'production') {
+    throw new Error(
+      'UCP_SECRET_KEY is required when ENVIRONMENT=production. Set it with `wrangler secret put UCP_SECRET_KEY`.'
+    );
+  }
   const secretKey = env.UCP_SECRET_KEY || DEFAULT_SECRET_KEY;
   const payTo = env.PAY_TO || '0x71C8F7aD9A208D1767677aB713A7Ef2b72449Fec';
   const defaultNetwork = env.DEFAULT_NETWORK || 'polygon';

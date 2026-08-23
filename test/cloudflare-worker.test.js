@@ -188,4 +188,13 @@ describeWorker('7. Cloudflare Worker Edge Micro-Adapter Tests', () => {
     const llmsText = await llmsRes.text();
     assert.ok(llmsText.includes('Universal Commerce Protocol'));
   });
+
+  test('fails closed when ENVIRONMENT=production without UCP_SECRET_KEY', async () => {
+    const prodEnv = { ...env, UCP_SECRET_KEY: undefined, ENVIRONMENT: 'production' };
+    const req = new Request('https://ucp.nymrel.com/api/ucp/manifest.json');
+    await assert.rejects(
+      () => handleRequest(req, prodEnv),
+      /UCP_SECRET_KEY is required/
+    );
+  });
 });
