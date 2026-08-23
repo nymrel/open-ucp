@@ -181,6 +181,12 @@ Install:
 pip install open-ucp
 ```
 
+> **Install today:** the `open-ucp` PyPI package is rolling out. Until it resolves, install from source:
+> ```bash
+> git clone https://github.com/nymrel/open-ucp && cd open-ucp
+> ```
+> then add the repo's `python/` directory to `PYTHONPATH` (or `pip install -e ./python` if packaged locally). The snippet below works unchanged against the local package. All four framework snippets (Next.js, Express, Fastify, FastAPI) are execution-verified against this repository.
+
 ```python
 import os
 from fastapi import FastAPI
