@@ -16,6 +16,12 @@ Today's AI agents can reason, code, and browse, but when it comes to purchasing 
 
 **`open-ucp`** is the open-source reference implementation of the **Universal Commerce Protocol (UCP)** and **Agentic Purchasing Protocol (AP2)**. It provides a zero-dependency, drop-in middleware for Next.js, Express, Fastify, and FastAPI that instantly makes any website or API discoverable, negotiable, and payable for autonomous AI agents.
 
+> **Install today:** the `@nymrel/open-ucp` npm package is rolling out. Until it resolves, install from source:
+> ```bash
+> git clone https://github.com/nymrel/open-ucp && cd open-ucp && npm install && npm run build
+> ```
+> then depend on it locally: `npm install file:../open-ucp` (adjust the relative path). The framework snippets below work unchanged once the local package is installed.
+
 ### Core Capabilities
 * 📜 **`/.well-known/ucp.json` Manifest:** Machine-readable commerce manifest exposing entity trust, capabilities, endpoints, and payment rails.
 * 🤝 **Machine Negotiation Engine (RFC-UCP-002):** Dynamic programmatic quotes, volume margin curves, and cryptographic HMAC-SHA256 tamper-proof quote signatures.
