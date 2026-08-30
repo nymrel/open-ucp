@@ -3,7 +3,7 @@
 > **Universal Commerce Protocol (UCP 1.0.0)** & Agentic Purchasing Engine for TypeScript/Node.js and Python. Zero runtime dependencies.
 
 [![npm version](https://img.shields.io/npm/v/@nymrel/open-ucp.svg?style=flat-square)](https://www.npmjs.com/package/@nymrel/open-ucp)
-[![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg?style=flat-square)](https://pypi.org/project/open-ucp/)
+[![Python Version](https://img.shields.io/badge/python-3.11--3.14-blue.svg?style=flat-square)](https://pypi.org/project/open-ucp/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-emerald.svg?style=flat-square)](LICENSE)
 [![Zero Dependencies](https://img.shields.io/badge/runtime%20dependencies-0-success.svg?style=flat-square)](package.json)
 [![Entity Trust](https://img.shields.io/badge/entity-Nymrel%20%2F%20JalenBuilds%20LLC-darkgreen.svg?style=flat-square)](https://nymrel.com)
@@ -185,7 +185,7 @@ pip install open-ucp
 > ```bash
 > git clone https://github.com/nymrel/open-ucp && cd open-ucp
 > ```
-> then add the repo's `python/` directory to `PYTHONPATH` (or `pip install -e ./python` if packaged locally). The snippet below works unchanged against the local package. All four framework snippets (Next.js, Express, Fastify, FastAPI) are execution-verified against this repository.
+> then install the checkout with `pip install -e .` or add the repo's `python/` directory to `PYTHONPATH`. The snippet below works unchanged against the local package. All four framework snippets (Next.js, Express, Fastify, FastAPI) are execution-verified against this repository.
 
 ```python
 import os
@@ -218,7 +218,7 @@ app.add_middleware(
 
 ## 🧭 Walkthrough: Sell Your First Digital Product to an AI Agent
 
-Everything below runs locally in **TEST mode**: the payment destination is the placeholder zero address, all prices are dummy values, and no real funds move. You will need Node 18+.
+Everything below runs locally in **TEST mode**: the payment destination is the placeholder zero address, all prices are dummy values, and no real funds move. Use a supported Node.js LTS release: Node 22 or Node 24.
 
 **Step 0 — Install and generate a local signing key:**
 
@@ -410,17 +410,34 @@ In autonomous commerce, machine trust is as critical as human UX. Every UCP mani
 
 ## 🧪 Automated Testing
 
-Both TypeScript and Python engines include complete unit test suites testing manifest schemas, negotiation math, HMAC verification, X402 challenges, and route adapters:
+Both TypeScript and Python engines include complete unit test suites testing manifest schemas, negotiation math, HMAC verification, X402 challenges, and route adapters. The repository pins npm 12.0.2 and supports Node 22/24 plus Python 3.11–3.14:
 
 ```bash
-# Run TypeScript & Node.js tests
-npm test
+# Node: locked install, complete verification, and dependency audits
+corepack npm@12.0.2 ci
+corepack npm@12.0.2 run verify
+corepack npm@12.0.2 audit --audit-level=high
+corepack npm@12.0.2 audit --omit=dev --audit-level=high
+corepack npm@12.0.2 install-scripts ls
 
-# Run Python tests (repo checkout: put the package on the path first)
-PYTHONPATH=./python python -m unittest discover -s python/tests -p "test_*.py"
+# Python: install the reviewed tools and optional FastAPI adapter, then verify
+python -m pip install --requirement requirements-dev.txt
+python -m pip install --editable ".[fastapi]"
+python -m pip check
+python -m ruff check python
+python -m bandit -q -r python/open_ucp
+python -m unittest discover -s python/tests -p "test_*.py" -v
+python -m pip uninstall --yes open-ucp
+python -m pip_audit --strict
+
+# Build and inspect only Python distributions in an isolated output directory
+python -m build --outdir dist-py
+python -m twine check dist-py/*
 ```
 
-> On Windows PowerShell, set the path with `$env:PYTHONPATH = "./python"` first. If you installed the published wheel (`pip install open-ucp`), the `PYTHONPATH` prefix is unnecessary.
+`npm run verify` runs 37 Node protocol tests plus the CI contract suite. The Python command runs 28 protocol tests. The editable first-party package is removed only after tests so the strict audit covers the resolved third-party environment without misclassifying the unpublished local distribution. The wheel build explicitly excludes `python/tests`.
+
+Release tags invoke a separate, tag-only workflow. Both npm and PyPI jobs consume already-validated artifacts and request short-lived OIDC credentials inside dedicated `npm` and `pypi` environments. The workflow contains no registry write token. Those environments and trusted-publisher relationships must still be configured by an authorized registry operator; a green local or GitHub build is not proof that either registry publication completed.
 
 ---
 
