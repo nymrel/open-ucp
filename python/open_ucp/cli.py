@@ -4,18 +4,14 @@ Universal Commerce Protocol (UCP) Python CLI Tool
 Copyright (c) 2026 Nymrel / JalenBuilds LLC. Licensed under MIT.
 """
 
-import sys
 import os
 import json
 import argparse
 import urllib.request
 import secrets
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from .core import UCPManifestBuilder, ProductCatalog, create_default_manifest
-from .types import ProductOffer, PricingTier, NegotiationRules
+from .core import UCPManifestBuilder, create_default_manifest
 from .validator import UCPValidator
-from .negotiation import NegotiationEngine
-from .x402 import X402PaymentHandler
 
 
 def main():
@@ -100,7 +96,8 @@ def handle_validate(args):
 
     if target.startswith("http://") or target.startswith("https://"):
         req = urllib.request.Request(target, headers={"User-Agent": "open-ucp-cli/1.0"})
-        with urllib.request.urlopen(req) as resp:
+        # The branch above rejects non-HTTP(S) schemes before this operator-invoked fetch.
+        with urllib.request.urlopen(req) as resp:  # nosec B310
             data = json.loads(resp.read().decode("utf-8"))
     else:
         with open(target, "r", encoding="utf-8") as f:

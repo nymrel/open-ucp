@@ -31,7 +31,10 @@
     "ucp": "./bin/open-ucp.js"
   },
   "files": [
-    "dist",
+    "dist/**/*.js",
+    "dist/**/*.js.map",
+    "dist/**/*.d.ts",
+    "dist/**/*.d.ts.map",
     "bin",
     "src",
     "cloudflare",
@@ -44,16 +47,34 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "node test/run.mjs",
-    "lint": "node -e \"console.log('Zero lint errors')\"",
+    "test:ci": "node --test test/ci-contract.test.mjs",
+    "verify:toolchain": "node scripts/verify-toolchain.mjs",
+    "verify": "node scripts/verify-toolchain.mjs && tsc --noEmit && tsc && node test/run.mjs && node --test test/ci-contract.test.mjs",
+    "audit": "npm audit --audit-level=high",
+    "audit:prod": "npm audit --omit=dev --audit-level=high",
     "start": "node bin/open-ucp.js serve",
-    "prepublishOnly": "npm run build && npm test"
+    "prepack": "tsc",
+    "prepublishOnly": "node scripts/verify-toolchain.mjs && tsc --noEmit && tsc && node test/run.mjs && node --test test/ci-contract.test.mjs"
   },
   "devDependencies": {
-    "@types/node": "^22.10.0",
-    "typescript": "^5.7.2"
+    "@types/node": "24.13.3",
+    "typescript": "7.0.2"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22 <25"
+  },
+  "packageManager": "npm@12.0.2",
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": ">=22 <25",
+      "onFail": "error"
+    },
+    "packageManager": {
+      "name": "npm",
+      "version": "12.0.2",
+      "onFail": "error"
+    }
   },
   "publishConfig": {
     "access": "public"

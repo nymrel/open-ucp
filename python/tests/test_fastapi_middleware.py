@@ -3,7 +3,6 @@ Unit tests for open_ucp FastAPI / ASGI Middleware (Python)
 """
 
 import unittest
-import asyncio
 import json
 from open_ucp.fastapi_middleware import UCPFastAPIMiddleware
 from open_ucp.core import create_default_manifest, ProductCatalog
