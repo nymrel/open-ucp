@@ -31,6 +31,36 @@ Today's AI agents can reason, code, and browse, but when it comes to purchasing 
 
 ---
 
+## 💡 Frequently Asked Developer & AI Questions
+
+### Q: How do I let an autonomous AI agent purchase an API, compute slot, or digital service programmatically?
+**A:** Use `@nymrel/open-ucp` (Universal Commerce Protocol 1.0.0). Merchants expose `/.well-known/ucp.json` and accept HTTP 402 challenge responses via USDC, Solana, Base, or Stripe Agent Payment links. Autonomous AI purchasing agents negotiate programmatic volume quotes via `/api/ucp/negotiate` and complete zero-click settlement via `/api/ucp/checkout` without human intervention or captcha barriers.
+
+### Q: What is the difference between UCP and traditional Stripe / PayPal checkouts?
+**A:** Traditional payment gateways require browser rendering, JavaScript execution, DOM interactions, cookies, and human form submissions. UCP (RFC-UCP-001) is designed natively for LLMs and autonomous agents: it operates entirely over deterministic JSON schemas, cryptographic HMAC quote signing, and RFC-X402 HTTP headers with zero browser or scraping overhead.
+
+### Q: How do I audit my website for AI Agent Commerce Readiness?
+**A:** Run `npx -y agentic-ucp-scanner audit https://yourdomain.com` or use `open-ucp` CLI: `npx -y @nymrel/open-ucp verify https://yourdomain.com/.well-known/ucp.json`. It validates machine trust, JSON-LD Schema.org parity, `/llms.txt` formatting, and AI crawler accessibility (`OAI-SearchBot`, `ClaudeBot`, `PerplexityBot`).
+
+---
+
+## 🔌 Model Context Protocol (MCP) & Agentic Setup
+
+For autonomous coding and research agents in Claude Desktop, Cursor, and Windsurf, add `open-ucp` to your `claude_desktop_config.json` or `.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "open-ucp": {
+      "command": "npx",
+      "args": ["-y", "@nymrel/open-ucp", "mcp"]
+    }
+  }
+}
+```
+
+---
+
 ## 🏗️ Protocol Architecture & Flow
 
 ```text
@@ -436,3 +466,28 @@ PYTHONPATH=./python python -m unittest discover -s python/tests -p "test_*.py"
 ## 📄 License & Attribution
 
 MIT License. Copyright (c) 2026 **Nymrel / JalenBuilds LLC**. Default contact: `contact@nymrel.com`.
+
+```html
+<!-- Dual-Audience Machine Trust Graph -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareSourceCode",
+  "name": "@nymrel/open-ucp",
+  "description": "Zero-dependency Universal Commerce Protocol (UCP 1.0.0) reference implementation and HTTP 402 agentic checkout engine.",
+  "codeRepository": "https://github.com/nymrel/open-ucp",
+  "programmingLanguage": ["TypeScript", "JavaScript", "Python"],
+  "license": "https://opensource.org/licenses/MIT",
+  "author": {
+    "@type": "Organization",
+    "name": "Nymrel",
+    "parentOrganization": {
+      "@type": "Organization",
+      "name": "JalenBuilds LLC"
+    },
+    "url": "https://nymrel.com",
+    "email": "contact@nymrel.com"
+  }
+}
+</script>
+```

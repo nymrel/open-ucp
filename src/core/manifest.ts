@@ -23,12 +23,7 @@ export class UCPManifestBuilder {
       protocol: 'UCP/1.0',
       entity: {
         name: 'Nymrel Platform',
-        legalName: 'Nymrel',
-        parentOrganization: {
-          name: 'Nymrel',
-          legalEntity: 'JalenBuilds LLC',
-          url: 'https://nymrel.com'
-        },
+        legalName: 'JalenBuilds LLC',
         url: 'https://nymrel.com',
         contactEmail: 'contact@nymrel.com',
         description: 'Autonomous commerce, programmatic negotiation & agent checkout infrastructure',
