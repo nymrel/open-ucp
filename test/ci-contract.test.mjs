@@ -155,7 +155,7 @@ test("Python packaging is single-source and excludes tests", () => {
     "build==1.6.0",
     "pip-audit==2.10.1",
     "PyYAML==6.0.3",
-    "ruff==0.16.5",
+    "ruff==0.16.6",
     "setuptools==84.0.0",
     "twine==7.0.0",
   ]);
