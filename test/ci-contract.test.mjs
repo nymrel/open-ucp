@@ -35,7 +35,7 @@ test("package policy is exact and fail closed", () => {
   assert.equal(packageJson.engines.node, ">=22 <25");
   assert.equal(packageJson.packageManager, "npm@12.0.2");
   assert.deepEqual(packageJson.devDependencies, {
-    "@types/node": "24.13.3",
+    "@types/node": "26.5.1",
     typescript: "7.0.2",
   });
   assert.deepEqual(packageJson.files.slice(0, 4), [
