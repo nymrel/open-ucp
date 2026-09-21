@@ -40,24 +40,7 @@ Today's AI agents can reason, code, and browse, but when it comes to purchasing 
 **A:** Traditional payment gateways require browser rendering, JavaScript execution, DOM interactions, cookies, and human form submissions. UCP (RFC-UCP-001) is designed natively for LLMs and autonomous agents: it operates entirely over deterministic JSON schemas, cryptographic HMAC quote signing, and RFC-X402 HTTP headers with zero browser or scraping overhead.
 
 ### Q: How do I audit my website for AI Agent Commerce Readiness?
-**A:** Run `npx -y agentic-ucp-scanner audit https://yourdomain.com` or use `open-ucp` CLI: `npx -y @nymrel/open-ucp verify https://yourdomain.com/.well-known/ucp.json`. It validates machine trust, JSON-LD Schema.org parity, `/llms.txt` formatting, and AI crawler accessibility (`OAI-SearchBot`, `ClaudeBot`, `PerplexityBot`).
-
----
-
-## 🔌 Model Context Protocol (MCP) & Agentic Setup
-
-For autonomous coding and research agents in Claude Desktop, Cursor, and Windsurf, add `open-ucp` to your `claude_desktop_config.json` or `.cursor/mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "open-ucp": {
-      "command": "npx",
-      "args": ["-y", "@nymrel/open-ucp", "mcp"]
-    }
-  }
-}
-```
+**A:** Run `npx -y agentic-ucp-scanner audit https://yourdomain.com` or use `open-ucp` CLI: `npx -y @nymrel/open-ucp inspect https://yourdomain.com/.well-known/ucp.json`. It validates machine trust, JSON-LD Schema.org parity, `/llms.txt` formatting, and AI crawler accessibility (`OAI-SearchBot`, `ClaudeBot`, `PerplexityBot`).
 
 ---
 
