@@ -46,6 +46,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
+    "pretest": "npm run build",
     "test": "node test/run.mjs",
     "test:ci": "node --test test/ci-contract.test.mjs",
     "verify:toolchain": "node scripts/verify-toolchain.mjs",
