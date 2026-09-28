@@ -25,7 +25,7 @@ Today's AI agents can reason, code, and browse, but when it comes to purchasing 
 ### Core Capabilities
 * 📜 **`/.well-known/ucp.json` Manifest:** Machine-readable commerce manifest exposing entity trust, capabilities, endpoints, and payment rails.
 * 🤝 **Machine Negotiation Engine (RFC-UCP-002):** Dynamic programmatic quotes, volume margin curves, and cryptographic HMAC-SHA256 tamper-proof quote signatures.
-* 💳 **X402 Payment Required Engine (RFC-X402):** Native HTTP 402 challenge-response payment protocol for USDC, Solana, Base, Lightning, and Stripe.
+* 💳 **X402 Payment Required Engine (RFC-X402):** Native HTTP 402 challenge-response payment protocol for USDC, Solana, Base, Lightning, Stripe, and Nano (XNO).
 * 🔍 **Dual-Audience Machine Trust:** Built-in JSON-LD parity verification, Schema.org product alignment, and parent organization verification (`Nymrel -> JalenBuilds LLC`).
 * 📦 **Zero Runtime Dependencies:** Native TypeScript & Python stdlib implementations with complete test suites.
 
@@ -368,6 +368,46 @@ Response — sale settled, receipt issued:
   "timestamp": "2026-08-23T11:26:02.114Z"
 }
 ```
+
+### Nano (XNO) settlement
+
+Open-ucp can settle a checkout on the **Nano** network. Nano is instant and
+feeless, and a payment is a public block a buyer (or any third party) can
+re-read on the ledger — so the middleware verifies the **chain state** instead of
+trusting a token the seller signed itself. The receipt is the block.
+
+Enable it by configuring the handler with a `nano_` pay-to address and passing a
+Nano block hash in the payment proof's `txHash`:
+
+```javascript
+import { X402PaymentHandler } from '@nymrel/open-ucp';
+
+const pay = new X402PaymentHandler({
+  secretKey: process.env.UCP_SECRET_KEY,
+  payTo: 'nano_1...',            // merchant's Nano account
+  defaultNetwork: 'nano',
+  defaultCurrency: 'XNO'
+});
+```
+
+```bash
+curl -X POST http://localhost:4020/api/ucp/checkout \
+  -H "Content-Type: application/json" \
+  -d '{
+    "quote": <paste the full quote JSON>,
+    "paymentProof": {
+      "protocol": "x402",
+      "txHash": "<nano block hash of the send/receive>",
+      "timestamp": "2026-09-28T00:00:00.000Z"
+    }
+  }'
+```
+
+The middle leaf performs an on-chain `block_info` lookup and only fulfils the
+order when the block exists, lands on the configured pay-to account, and carries
+at least the quoted amount (converted to raw, 1 XNO = 10^30 raw). Unreadable,
+missing, or mismatched blocks fail closed.
+
 
 **Going to production:** replace the zero-address `payTo` with your real destination via `createDefaultManifest({ payTo: '...' })`, swap the TEST-mode proof minter for a genuine x402 payment verification flow, and keep `UCP_SECRET_KEY` in your secret manager. Fulfillment hooks (`onCheckoutComplete`) let you deliver the download, license key, or API grant inside checkout.
 

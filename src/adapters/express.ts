@@ -136,8 +136,30 @@ export function ucpExpressMiddleware(config: UCPServerConfig) {
           return;
         }
 
-        // Verify payment
-        const paymentVerify = paymentHandler.verifyPayment(body.paymentProof);
+        // Verify payment. For the Nano rail the receipt is a public block a
+        // stranger can re-read, so we verify settlement on-chain rather than
+        // trusting a self-signed proof token.
+        const settleNet = body.quote?.settlementInstructions?.network;
+        const proof: PaymentProof = typeof body.paymentProof === 'string'
+          ? { protocol: 'x402', token: body.paymentProof, timestamp: new Date().toISOString() }
+          : (body.paymentProof as PaymentProof);
+        let paymentVerify;
+        if (settleNet === 'nano') {
+          const txHash = proof?.txHash;
+          if (!txHash) {
+            res.statusCode = 402;
+            res.setHeader('Content-Type', 'application/json; charset=utf-8');
+            res.end(JSON.stringify({ error: 'A nano settlement requires a txHash (block hash)' }));
+            return;
+          }
+          paymentVerify = await paymentHandler.verifyNanoSettlement({
+            txHash,
+            amountXno: body.quote.totalPrice,
+            payTo: body.quote?.settlementInstructions?.payTo,
+          });
+        } else {
+          paymentVerify = paymentHandler.verifyPayment(proof);
+        }
         if (!paymentVerify.verified) {
           res.statusCode = 402;
           res.setHeader('Content-Type', 'application/json; charset=utf-8');

@@ -7,6 +7,7 @@
 
 import * as crypto from 'node:crypto';
 import { X402Challenge, PaymentProof, PaymentVerificationResult } from './types.js';
+import { NanoRpcLookup, defaultNanoRpcLookup, verifyNanoReceipt, xnoToRaw } from './nano.js';
 
 export interface X402Options {
   secretKey: string;
@@ -14,6 +15,8 @@ export interface X402Options {
   defaultNetwork?: string;
   defaultCurrency?: string;
   challengeTtlSeconds?: number;
+  /** optional Nano RPC lookup override; defaults to a public node via block_info */
+  nanoRpcLookup?: NanoRpcLookup;
 }
 
 export class X402PaymentHandler {
@@ -22,6 +25,7 @@ export class X402PaymentHandler {
   private defaultNetwork: string;
   private defaultCurrency: string;
   private challengeTtlSeconds: number;
+  private nanoRpcLookup: NanoRpcLookup;
 
   constructor(options: X402Options) {
     if (!options.secretKey) {
@@ -32,6 +36,7 @@ export class X402PaymentHandler {
     this.defaultNetwork = options.defaultNetwork || 'polygon';
     this.defaultCurrency = options.defaultCurrency || 'USD';
     this.challengeTtlSeconds = options.challengeTtlSeconds || 300;
+    this.nanoRpcLookup = options.nanoRpcLookup || defaultNanoRpcLookup;
   }
 
   /**
@@ -200,5 +205,51 @@ export class X402PaymentHandler {
       const msg = err instanceof Error ? err.message : String(err);
       return { verified: false, error: `Payment verification failed: ${msg}` };
     }
+  }
+
+  /**
+   * Verify a Nano (XNO) settlement on-chain. Unlike the signed-proof path above,
+   * this reads the public chain: the receipt is the block a stranger can re-read.
+   * The payer supplies the block hash (send or receive) in `txHash`; we confirm
+   * the block exists, lands on the configured pay-to account, and carries at
+   * least the quoted amount. Fail-closed: an unreadable or mismatched block is
+   * a rejection, never an acceptance.
+   */
+  public async verifyNanoSettlement(options: {
+    txHash: string;
+    amountXno: number;
+    currency?: string;
+    payTo?: string;
+  }): Promise<PaymentVerificationResult> {
+    const payTo = options.payTo || this.payTo;
+    if (!payTo.startsWith('nano_')) {
+      return {
+        verified: false,
+        error: 'A nano network requires a nano_ pay-to address',
+      };
+    }
+    let expectedRaw: string;
+    try {
+      expectedRaw = xnoToRaw(options.amountXno);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { verified: false, error: msg };
+    }
+    const result = await verifyNanoReceipt(
+      options.txHash,
+      payTo,
+      expectedRaw,
+      this.nanoRpcLookup
+    );
+    if (!result.verified) {
+      return { verified: false, error: result.reason || 'Nano settlement not verified' };
+    }
+    return {
+      verified: true,
+      receiptId: 'ucp_nano_' + options.txHash.slice(0, 24),
+      amount: options.amountXno,
+      currency: options.currency || 'XNO',
+      payerId: options.txHash,
+    };
   }
 }
