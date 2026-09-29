@@ -9,6 +9,42 @@ import * as crypto from 'node:crypto';
 import { X402Challenge, PaymentProof, PaymentVerificationResult } from './types.js';
 import { NanoRpcLookup, defaultNanoRpcLookup, verifyNanoReceipt, xnoToRaw } from './nano.js';
 
+/**
+ * One Nano block settles ONE order. A block hash is public and permanent, so
+ * without this ledger a single genuine receive confirms every later order at or
+ * below its amount, forever.
+ */
+export interface NanoReceiptLedger {
+  /**
+   * Atomically claim a block hash for one order. Returns false when the hash has
+   * already settled an order - that is a replay and must be rejected.
+   * An implementation spanning processes must make this ONE atomic operation
+   * (a unique-index insert, Redis SETNX): a has()-then-add() pair lets two
+   * concurrent requests settle on the same block.
+   */
+  claim(blockHash: string, quoteId: string): Promise<boolean> | boolean;
+  /** release a claim whose verification then failed, so an honest retry works */
+  release(blockHash: string): Promise<void> | void;
+}
+
+/**
+ * Default in-process ledger. Correct for a single-process merchant; a merchant
+ * running more than one process or box MUST pass a shared store instead, or the
+ * same block settles once per process.
+ */
+export class InMemoryNanoReceiptLedger implements NanoReceiptLedger {
+  private spent = new Map<string, string>();
+  public claim(blockHash: string, quoteId: string): boolean {
+    const key = blockHash.toUpperCase();
+    if (this.spent.has(key)) return false;
+    this.spent.set(key, quoteId);
+    return true;
+  }
+  public release(blockHash: string): void {
+    this.spent.delete(blockHash.toUpperCase());
+  }
+}
+
 export interface X402Options {
   secretKey: string;
   payTo?: string;
@@ -17,6 +53,11 @@ export interface X402Options {
   challengeTtlSeconds?: number;
   /** optional Nano RPC lookup override; defaults to a public node via block_info */
   nanoRpcLookup?: NanoRpcLookup;
+  /**
+   * Ledger of Nano block hashes already spent on an order. Defaults to an
+   * in-process one; pass a shared store when running more than one process.
+   */
+  nanoReceiptLedger?: NanoReceiptLedger;
 }
 
 export class X402PaymentHandler {
@@ -26,6 +67,7 @@ export class X402PaymentHandler {
   private defaultCurrency: string;
   private challengeTtlSeconds: number;
   private nanoRpcLookup: NanoRpcLookup;
+  private nanoReceiptLedger: NanoReceiptLedger;
 
   constructor(options: X402Options) {
     if (!options.secretKey) {
@@ -37,6 +79,8 @@ export class X402PaymentHandler {
     this.defaultCurrency = options.defaultCurrency || 'USD';
     this.challengeTtlSeconds = options.challengeTtlSeconds || 300;
     this.nanoRpcLookup = options.nanoRpcLookup || defaultNanoRpcLookup;
+    this.nanoReceiptLedger =
+      options.nanoReceiptLedger || new InMemoryNanoReceiptLedger();
   }
 
   /**
@@ -210,14 +254,21 @@ export class X402PaymentHandler {
   /**
    * Verify a Nano (XNO) settlement on-chain. Unlike the signed-proof path above,
    * this reads the public chain: the receipt is the block a stranger can re-read.
-   * The payer supplies the block hash (send or receive) in `txHash`; we confirm
-   * the block exists, lands on the configured pay-to account, and carries at
-   * least the quoted amount. Fail-closed: an unreadable or mismatched block is
+   * The payer supplies the block hash in `txHash`; we confirm the block exists,
+   * is confirmed, CREDITS the configured pay-to account, carries at least the
+   * quoted amount, and has not already settled another order.
+   *
+   * `payTo` must come from the merchant's own configuration or from a quote field
+   * the merchant signed - never from an unauthenticated request body, or the
+   * payer redirects the payment to an account they control and pays themselves.
+   *
+   * Fail-closed: an unreadable, unconfirmed, mismatched or already-spent block is
    * a rejection, never an acceptance.
    */
   public async verifyNanoSettlement(options: {
     txHash: string;
-    amountXno: number;
+    amountXno: number | string;
+    quoteId: string;
     currency?: string;
     payTo?: string;
   }): Promise<PaymentVerificationResult> {
@@ -228,6 +279,21 @@ export class X402PaymentHandler {
         error: 'A nano network requires a nano_ pay-to address',
       };
     }
+    // amountXno is an amount of XNO. A total denominated in anything else has
+    // not been converted, and settling it as XNO charges the wrong number.
+    const currency = (options.currency || 'XNO').toUpperCase();
+    if (currency !== 'XNO') {
+      return {
+        verified: false,
+        error: `A nano settlement must be quoted in XNO, not ${currency}`,
+      };
+    }
+    if (!options.quoteId) {
+      return {
+        verified: false,
+        error: 'A nano settlement must name the quote it settles',
+      };
+    }
     let expectedRaw: string;
     try {
       expectedRaw = xnoToRaw(options.amountXno);
@@ -235,20 +301,44 @@ export class X402PaymentHandler {
       const msg = err instanceof Error ? err.message : String(err);
       return { verified: false, error: msg };
     }
-    const result = await verifyNanoReceipt(
-      options.txHash,
-      payTo,
-      expectedRaw,
-      this.nanoRpcLookup
-    );
+    if (BigInt(expectedRaw) <= 0n) {
+      return { verified: false, error: 'A nano settlement amount must be above zero' };
+    }
+
+    // Claim the block BEFORE verifying it, so two concurrent requests cannot
+    // both settle on one block; release it again if verification fails.
+    const claimed = await this.nanoReceiptLedger.claim(options.txHash, options.quoteId);
+    if (!claimed) {
+      return {
+        verified: false,
+        error: 'This Nano block has already settled an order',
+      };
+    }
+
+    let result;
+    try {
+      result = await verifyNanoReceipt(
+        options.txHash,
+        payTo,
+        expectedRaw,
+        this.nanoRpcLookup
+      );
+    } catch (err: unknown) {
+      await this.nanoReceiptLedger.release(options.txHash);
+      const msg = err instanceof Error ? err.message : String(err);
+      return { verified: false, error: `Nano settlement lookup failed: ${msg}` };
+    }
     if (!result.verified) {
+      await this.nanoReceiptLedger.release(options.txHash);
       return { verified: false, error: result.reason || 'Nano settlement not verified' };
     }
     return {
       verified: true,
       receiptId: 'ucp_nano_' + options.txHash.slice(0, 24),
-      amount: options.amountXno,
-      currency: options.currency || 'XNO',
+      amount: typeof options.amountXno === 'number'
+        ? options.amountXno
+        : Number(options.amountXno),
+      currency: 'XNO',
       payerId: options.txHash,
     };
   }

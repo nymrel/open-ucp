@@ -35,9 +35,11 @@ export function ucpExpressMiddleware(config: UCPServerConfig) {
     network: config.manifest.paymentRails?.x402?.defaultNetwork
   });
 
+  const configuredPayTo = config.manifest.paymentRails?.x402?.payTo;
+
   const paymentHandler = new X402PaymentHandler({
     secretKey: config.secretKey,
-    payTo: config.manifest.paymentRails?.x402?.payTo,
+    payTo: configuredPayTo,
     defaultNetwork: config.manifest.paymentRails?.x402?.defaultNetwork,
     defaultCurrency: config.manifest.catalogSummary?.currency || 'USD'
   });
@@ -152,10 +154,23 @@ export function ucpExpressMiddleware(config: UCPServerConfig) {
             res.end(JSON.stringify({ error: 'A nano settlement requires a txHash (block hash)' }));
             return;
           }
+          // The quote's settlement instructions are inside the signed payload, so
+          // they arrive authenticated. Check them against our own configuration
+          // anyway: the address the money goes to is never worth trusting to one
+          // layer, and a mismatch means the quote was not issued for this shop.
+          const quotedPayTo = body.quote?.settlementInstructions?.payTo;
+          if (configuredPayTo && quotedPayTo && quotedPayTo !== configuredPayTo) {
+            res.statusCode = 422;
+            res.setHeader('Content-Type', 'application/json; charset=utf-8');
+            res.end(JSON.stringify({ error: 'Quote pay-to does not match this merchant' }));
+            return;
+          }
           paymentVerify = await paymentHandler.verifyNanoSettlement({
             txHash,
             amountXno: body.quote.totalPrice,
-            payTo: body.quote?.settlementInstructions?.payTo,
+            quoteId: body.quote.quoteId,
+            currency: body.quote.currency,
+            payTo: configuredPayTo,
           });
         } else {
           paymentVerify = paymentHandler.verifyPayment(proof);

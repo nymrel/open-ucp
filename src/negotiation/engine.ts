@@ -130,6 +130,12 @@ export class NegotiationEngine {
     const issuedAt = now.toISOString();
     const expiresAt = new Date(now.getTime() + this.defaultTtlSeconds * 1000).toISOString();
 
+    const settlementInstructions: SignedQuote['settlementInstructions'] = {
+      protocol: this.defaultProtocol,
+      payTo: this.payTo,
+      network: this.network
+    };
+
     const signature = this.signQuotePayload({
       quoteId,
       sku: product.sku,
@@ -138,7 +144,8 @@ export class NegotiationEngine {
       currency: product.currency,
       expiresAt,
       agentId: request.agentId,
-      clientNonce: request.clientNonce
+      clientNonce: request.clientNonce,
+      settlementInstructions
     });
 
     return {
@@ -157,11 +164,7 @@ export class NegotiationEngine {
       issuedAt,
       expiresAt,
       signature,
-      settlementInstructions: {
-        protocol: this.defaultProtocol,
-        payTo: this.payTo,
-        network: this.network
-      }
+      settlementInstructions
     };
   }
 
@@ -190,7 +193,8 @@ export class NegotiationEngine {
         currency: quote.currency,
         expiresAt: quote.expiresAt,
         agentId: quote.agentId,
-        clientNonce: quote.clientNonce
+        clientNonce: quote.clientNonce,
+        settlementInstructions: quote.settlementInstructions
       });
 
       const expectedBuf = Buffer.from(expectedSig, 'hex');
@@ -270,7 +274,9 @@ export class NegotiationEngine {
     expiresAt: string;
     agentId: string;
     clientNonce: string;
+    settlementInstructions: SignedQuote['settlementInstructions'];
   }): string {
+    const settlement = payload.settlementInstructions || { protocol: this.defaultProtocol };
     const serialized = [
       payload.quoteId,
       payload.sku,
@@ -279,7 +285,18 @@ export class NegotiationEngine {
       payload.currency.toUpperCase(),
       payload.expiresAt,
       payload.agentId,
-      payload.clientNonce
+      payload.clientNonce,
+      // Where the money goes is part of the quote. Left out of the signature, a
+      // payer edits settlementInstructions.payTo to an account they control,
+      // pays themselves, and the signature still verifies. Serialized as a JSON
+      // array so no field value can impersonate the ':' delimiter.
+      JSON.stringify([
+        settlement.protocol,
+        settlement.payTo ?? '',
+        settlement.network ?? '',
+        settlement.token ?? '',
+        settlement.checkoutUrl ?? ''
+      ])
     ].join(':');
 
     return crypto.createHmac('sha256', this.secretKey).update(serialized).digest('hex');

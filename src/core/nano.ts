@@ -4,9 +4,20 @@
  * Nano network. Copyright (c) 2026 Nymrel / JalenBuilds LLC. Licensed under MIT.
  *
  * A payment on Nano is a block. The receipt the merchant should trust is not a
- * token it signed itself but the public block a stranger can re-read: a receive
- * (or send) block on the pay-to account whose `amount` in raw meets the price.
- * This module verifies that claim against a public Nano node.
+ * token it signed itself but the public block a stranger can re-read. The one
+ * thing that makes such a block a payment is that it CREDITS the pay-to
+ * account, which on Nano is two different fields depending on the subtype:
+ *
+ *   receive (or open) : the funds land on the block's own account, so the block
+ *                       is a payment when block_account === payTo.
+ *   send              : the funds leave the block's own account for the account
+ *                       in `link_as_account`, so the block is a payment when
+ *                       link_as_account === payTo. block_account here is the
+ *                       PAYER, never the payee.
+ *
+ * Reading block_account for both is what lets a stranger present one of the
+ * merchant's own outgoing sends as proof of payment, so the two subtypes are
+ * kept apart below and every missing field is a rejection.
  */
 
 export interface NanoBlockInfo {
@@ -14,10 +25,17 @@ export interface NanoBlockInfo {
   hash: string;
   /** whether the block exists (block_info returned data) */
   exists: boolean;
+  /** whether the node reports the block as confirmed (cemented) */
+  confirmed: boolean;
   /** block subtype as reported by the node, e.g. 'receive' | 'send' | 'change' */
   subtype?: string;
-  /** the account that owns the block ('account' field of contents) */
-  account?: string;
+  /**
+   * The account the block SITS ON (`block_account`). For a receive this is the
+   * payee; for a send it is the PAYER. Never read it without checking subtype.
+   */
+  blockAccount?: string;
+  /** for a send, the destination account the funds move TO (`link_as_account`) */
+  linkAsAccount?: string;
   /** amount in raw (1 XNO = 10^30 raw) as a decimal string, when present */
   amountRaw?: string;
 }
@@ -51,10 +69,13 @@ export const defaultNanoRpcLookup: NanoRpcLookup = async (
   return {
     hash: blockHash,
     exists: true,
-    subtype: data.subtype || contents.type,
-    account:
-      (contents.account as string) ||
-      (contents.link_as_account as string),
+    // block_info reports confirmed as the string "true" on a cemented block.
+    confirmed: data.confirmed === true || data.confirmed === 'true',
+    // `contents.type` is 'state' on a modern block; the subtype only ever
+    // arrives top-level or, on a legacy block, as contents.type.
+    subtype: data.subtype || contents.subtype || contents.type,
+    blockAccount: (data.block_account as string) || (contents.account as string),
+    linkAsAccount: contents.link_as_account as string,
     amountRaw: data.amount !== undefined ? String(data.amount) : undefined,
   };
 };
@@ -62,33 +83,75 @@ export const defaultNanoRpcLookup: NanoRpcLookup = async (
 /** 1 XNO in raw = 10^30 */
 export const XNO_RAW = 10n ** 30n;
 
+/** raw is XNO scaled by 10^30, so 30 decimal places is the whole resolution */
+const RAW_DECIMALS = 30;
+
+/**
+ * Exact decimal -> raw scaling on a decimal literal, including the exponent
+ * forms JavaScript prints for small and large numbers (`String(1e-7)` is
+ * `"1e-7"`, not `"0.0000001"`). Never goes through a float.
+ */
+function decimalLiteralToRaw(literal: string): bigint {
+  const m = /^([+-]?)(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/.exec(literal.trim());
+  if (!m || (!m[2] && !m[3])) {
+    throw new Error(`nano amount is not a decimal number: ${literal}`);
+  }
+  const sign = m[1];
+  const whole = m[2] || '';
+  const frac = m[3] || '';
+  const exp = Number(m[4] || '0');
+  if (sign === '-' && /[1-9]/.test(whole + frac)) {
+    throw new Error('nano amount must be a non-negative finite number');
+  }
+  const digits = whole + frac || '0';
+  // value = digits * 10^(exp - frac.length), and raw = value * 10^30
+  const shift = RAW_DECIMALS + exp - frac.length;
+  if (shift < 0) {
+    // Finer than one raw. Refuse rather than silently truncate the amount a
+    // block must carry: a short raw amount is money the merchant never gets.
+    const dropped = digits.slice(shift);
+    if (/[1-9]/.test(dropped)) {
+      throw new Error(
+        `nano amount ${literal} is finer than 1 raw (10^-${RAW_DECIMALS} XNO)`
+      );
+    }
+    return BigInt(digits.slice(0, shift) || '0');
+  }
+  return BigInt(digits) * 10n ** BigInt(shift);
+}
+
 /**
  * Convert a decimal XNO amount (e.g. 0.00001, or the string "0.00001") to raw
  * subunits (1 XNO = 10^30 raw) as a decimal string. Performs exact decimal
- * scaling on the shortest round-trip decimal form, so floating-point or trailing
- * representation error can never change the raw amount a block must carry.
+ * scaling on the shortest round-trip decimal form, so floating-point or
+ * trailing representation error can never change the raw amount a block must
+ * carry. Pass a string for amounts a double cannot hold exactly.
  */
 export function xnoToRaw(amountXno: number | string): string {
-  const num = typeof amountXno === 'number' ? amountXno : Number(amountXno);
-  if (!Number.isFinite(num) || num < 0) {
-    throw new Error('nano amount must be a non-negative finite number');
+  if (typeof amountXno === 'number') {
+    if (!Number.isFinite(amountXno) || amountXno < 0) {
+      throw new Error('nano amount must be a non-negative finite number');
+    }
+    // String(num) yields the shortest decimal that round-trips to the same
+    // value, which is what a merchant quoting "0.00001" actually intended.
+    return decimalLiteralToRaw(String(amountXno)).toString();
   }
-  // String(num) yields the shortest decimal that round-trips to the same value,
-  // which is what a merchant quoting "0.00001" actually intended.
-  const dec = String(num);
-  const [whole = '0', frac = ''] = dec.split('.');
-  const digits = (whole + (frac || '').padEnd(30, '0')).replace(/^0+(?=\d)/, '') || '0';
-  const raw = BigInt(digits);
-  return raw.toString();
+  return decimalLiteralToRaw(amountXno).toString();
 }
 
 /**
  * Verify a Nano block as the receipt for a payment:
- *  - the block exists on the public chain,
- *  - it is a receive (or send) block whose account is the expected pay-to,
+ *  - the block exists on the public chain and the node reports it confirmed,
+ *  - it credits the expected pay-to account (a receive ON that account, or a
+ *    send whose destination IS that account),
  *  - its raw amount is at least the expected amount in raw.
  *
- * Fail-closed: any unreadable, missing, or mismatched block is rejected.
+ * Fail-closed: any unreadable, unconfirmed, missing, or mismatched block is a
+ * rejection, and so is a block whose payee field the node did not report.
+ *
+ * This says only that the block credits the merchant. It does NOT say the block
+ * has not already paid for something else — one block settles one order, and
+ * that is the caller's ledger to keep (see NanoReceiptLedger in x402.ts).
  */
 export async function verifyNanoReceipt(
   blockHash: string,
@@ -106,27 +169,68 @@ export async function verifyNanoReceipt(
   if (!info || !info.exists) {
     return { verified: false, reason: 'Block not found on the public chain' };
   }
-  if (info.subtype !== 'receive' && info.subtype !== 'send') {
+  if (!info.confirmed) {
+    return {
+      verified: false,
+      reason: 'Block is not confirmed on the public chain yet',
+      info,
+    };
+  }
+
+  // Which field names the payee depends entirely on the subtype.
+  let payee: string | undefined;
+  if (info.subtype === 'receive' || info.subtype === 'open') {
+    payee = info.blockAccount;
+    if (!payee) {
+      return {
+        verified: false,
+        reason: 'Node reported no block account for the receive block',
+        info,
+      };
+    }
+  } else if (info.subtype === 'send') {
+    // block_account on a send is the PAYER. The payee is the destination.
+    payee = info.linkAsAccount;
+    if (!payee) {
+      return {
+        verified: false,
+        reason: 'Node reported no destination account for the send block',
+        info,
+      };
+    }
+  } else {
     return {
       verified: false,
       reason: `Block is not a settlement block (subtype ${info.subtype || 'unknown'})`,
     };
   }
-  if (info.account && info.account !== expectedPayTo) {
+
+  if (payee !== expectedPayTo) {
     return {
       verified: false,
-      reason: 'Block account does not match the expected pay-to',
+      reason: 'Block does not credit the expected pay-to account',
+      info,
     };
   }
   if (info.amountRaw === undefined) {
-    return { verified: false, reason: 'No amount recorded for the block' };
+    return { verified: false, reason: 'No amount recorded for the block', info };
   }
-  const actualRaw = BigInt(info.amountRaw);
+  let actualRaw: bigint;
+  try {
+    actualRaw = BigInt(info.amountRaw);
+  } catch {
+    return {
+      verified: false,
+      reason: `Block amount is not an integer raw value: ${info.amountRaw}`,
+      info,
+    };
+  }
   const expected = BigInt(expectedRaw);
   if (actualRaw < expected) {
     return {
       verified: false,
       reason: `Block amount ${info.amountRaw} raw is below expected ${expectedRaw} raw`,
+      info,
     };
   }
   return { verified: true, info };

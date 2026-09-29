@@ -397,16 +397,55 @@ curl -X POST http://localhost:4020/api/ucp/checkout \
     "quote": <paste the full quote JSON>,
     "paymentProof": {
       "protocol": "x402",
-      "txHash": "<nano block hash of the send/receive>",
+      "txHash": "<hash of the block that credits the merchant>",
       "timestamp": "2026-09-28T00:00:00.000Z"
     }
   }'
 ```
 
-The middle leaf performs an on-chain `block_info` lookup and only fulfils the
-order when the block exists, lands on the configured pay-to account, and carries
-at least the quoted amount (converted to raw, 1 XNO = 10^30 raw). Unreadable,
-missing, or mismatched blocks fail closed.
+The middleware performs an on-chain `block_info` lookup and only fulfils the
+order when the block exists, the node reports it **confirmed**, it **credits** the
+configured pay-to account, it carries at least the quoted amount (converted to
+raw, 1 XNO = 10^30 raw), and it has not already settled another order.
+Unreadable, unconfirmed, mismatched, or already-spent blocks fail closed.
+
+"Credits the pay-to account" is two different fields on Nano, and they are not
+interchangeable:
+
+| block subtype | the payee is | accepted when |
+| --- | --- | --- |
+| `receive` / `open` | the block's own account | `block_account` == pay-to |
+| `send` | the destination | `link_as_account` == pay-to |
+
+On a **send**, `block_account` is the *payer*. Matching the pay-to against it
+would accept the merchant's own outgoing sends — which are public — as proof that
+a stranger had paid, while rejecting the buyer's genuine send.
+
+**One block settles one order.** A block hash is public and permanent, so the
+handler keeps a ledger of spent hashes; without it a single genuine receive
+confirms every later order at or below its amount. The default ledger is
+in-process: a merchant running more than one process must pass a shared,
+atomically-claiming store via `nanoReceiptLedger`.
+
+```javascript
+const pay = new X402PaymentHandler({
+  secretKey: process.env.UCP_SECRET_KEY,
+  payTo: 'nano_1...',
+  defaultNetwork: 'nano',
+  defaultCurrency: 'XNO',
+  nanoReceiptLedger: {
+    // must be ONE atomic operation, e.g. a unique-index insert
+    claim: (hash, quoteId) => db.insertIfAbsent(hash, quoteId),
+    release: (hash) => db.delete(hash)
+  }
+});
+```
+
+A nano settlement is only accepted for a total denominated in **XNO**: the quote's
+`totalPrice` is in the quote's own currency, and a USD total is not an amount of
+XNO. Amounts are scaled to raw by exact decimal arithmetic, so sub-cent prices
+(`1e-7` XNO and below) and amounts no double can hold are converted exactly;
+an amount finer than one raw is refused rather than silently truncated.
 
 
 **Going to production:** replace the zero-address `payTo` with your real destination via `createDefaultManifest({ payTo: '...' })`, swap the TEST-mode proof minter for a genuine x402 payment verification flow, and keep `UCP_SECRET_KEY` in your secret manager. Fulfillment hooks (`onCheckoutComplete`) let you deliver the download, license key, or API grant inside checkout.
