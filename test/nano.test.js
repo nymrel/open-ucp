@@ -15,16 +15,17 @@ const PAYTO = 'nano_3f3r9t6r8n7y5d1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p7';
 const OTHER = 'nano_1111111111111111111111111111111111111111111111111111hifc8npp';
 const BLOCK = '0'.repeat(64);
 const BLOCK2 = '1'.repeat(64);
+const SOURCE = 'A'.repeat(64);
 
 /** Build a mock RPC lookup that returns a synthetic block_info payload. */
 function mockLookup(payload) {
   return async () => payload;
 }
 
-/** A confirmed receive that credits `account`. */
-const receiveTo = (account, raw = 10n ** 25n) => ({
+/** A confirmed receive that credits `account`, pocketing the send `source`. */
+const receiveTo = (account, raw = 10n ** 25n, source = SOURCE) => ({
   exists: true, confirmed: true, subtype: 'receive',
-  blockAccount: account, amountRaw: raw.toString(),
+  blockAccount: account, amountRaw: raw.toString(), sourceHash: source,
 });
 
 /** A confirmed send FROM `from` TO `to`. */
@@ -121,6 +122,19 @@ describe('verifyNanoReceipt (chain-state verification)', () => {
     assert.strictEqual(res2.verified, false);
   });
 
+  test('rejects a receive whose source send the node did not report', async () => {
+    const res = await verifyNanoReceipt(BLOCK, PAYTO, xnoToRaw(0.00001), mockLookup(receiveTo(PAYTO, 10n ** 26n, null)));
+    assert.strictEqual(res.verified, false);
+    assert.match(res.reason, /no source send/);
+  });
+
+  test('a send and its receive verify to the same payment id', async () => {
+    const send = await verifyNanoReceipt(BLOCK, PAYTO, xnoToRaw(0.00001), mockLookup(sendTo(OTHER, PAYTO)));
+    const recv = await verifyNanoReceipt(BLOCK2, PAYTO, xnoToRaw(0.00001), mockLookup(receiveTo(PAYTO, 10n ** 25n, BLOCK)));
+    assert.ok(send.paymentId);
+    assert.strictEqual(send.paymentId, recv.paymentId);
+  });
+
   test('rejects a block the node has not confirmed yet', async () => {
     const res = await verifyNanoReceipt(BLOCK, PAYTO, xnoToRaw(0.00001), mockLookup({ ...receiveTo(PAYTO), confirmed: false }));
     assert.strictEqual(res.verified, false);
@@ -193,6 +207,33 @@ describe('verifyNanoSettlement (handler end-to-end)', () => {
     assert.match(second.error, /already settled/);
   });
 
+  // Regression, double settlement: a payment is two blocks (the payer's send and
+  // the merchant's receive), both crediting the pay-to. Keying the ledger on the
+  // presented hash let one payment settle one order per block.
+  test('one payment presented as its send and then its receive settles once', async () => {
+    const blocks = {
+      [BLOCK]: sendTo(OTHER, PAYTO),
+      [BLOCK2]: receiveTo(PAYTO, 10n ** 25n, BLOCK),
+    };
+    const handler = nanoHandler(async (hash) => blocks[hash]);
+    assert.strictEqual((await settle(handler, { txHash: BLOCK, quoteId: 'q1' })).verified, true);
+    const second = await settle(handler, { txHash: BLOCK2, quoteId: 'q2' });
+    assert.strictEqual(second.verified, false);
+    assert.match(second.error, /already settled/);
+  });
+
+  test('one payment presented as its receive and then its send settles once', async () => {
+    const blocks = {
+      [BLOCK]: sendTo(OTHER, PAYTO),
+      [BLOCK2]: receiveTo(PAYTO, 10n ** 25n, BLOCK.toLowerCase()),
+    };
+    const handler = nanoHandler(async (hash) => blocks[hash]);
+    assert.strictEqual((await settle(handler, { txHash: BLOCK2, quoteId: 'q1' })).verified, true);
+    const second = await settle(handler, { txHash: BLOCK, quoteId: 'q2' });
+    assert.strictEqual(second.verified, false);
+    assert.match(second.error, /already settled/);
+  });
+
   test('a failed verification does not burn the block hash', async () => {
     const handler = nanoHandler(mockLookup(receiveTo(PAYTO, 1n)));
     assert.strictEqual((await settle(handler)).verified, false);
@@ -200,8 +241,8 @@ describe('verifyNanoSettlement (handler end-to-end)', () => {
     assert.strictEqual((await settle(handler2)).verified, true);
   });
 
-  test('two different blocks settle two different orders', async () => {
-    const handler = nanoHandler(mockLookup(receiveTo(PAYTO)));
+  test('two different payments settle two different orders', async () => {
+    const handler = nanoHandler(mockLookup(sendTo(OTHER, PAYTO)));
     assert.strictEqual((await settle(handler, { txHash: BLOCK, quoteId: 'q1' })).verified, true);
     assert.strictEqual((await settle(handler, { txHash: BLOCK2, quoteId: 'q2' })).verified, true);
   });

@@ -421,11 +421,14 @@ On a **send**, `block_account` is the *payer*. Matching the pay-to against it
 would accept the merchant's own outgoing sends — which are public — as proof that
 a stranger had paid, while rejecting the buyer's genuine send.
 
-**One block settles one order.** A block hash is public and permanent, so the
-handler keeps a ledger of spent hashes; without it a single genuine receive
-confirms every later order at or below its amount. The default ledger is
-in-process: a merchant running more than one process must pass a shared,
-atomically-claiming store via `nanoReceiptLedger`.
+**One payment settles one order.** A block hash is public and permanent, so the
+handler keeps a ledger of spent payments; without it a single genuine receive
+confirms every later order at or below its amount. A payment is two blocks - the
+payer's send and the merchant's receive that pockets it - so the ledger is keyed
+on the send's hash (for a receive, its `link`/`source`), and presenting the same
+payment once as its send and once as its receive settles one order, not two.
+The default ledger is in-process: a merchant running more than one process must
+pass a shared, atomically-claiming store via `nanoReceiptLedger`.
 
 ```javascript
 const pay = new X402PaymentHandler({
@@ -435,8 +438,7 @@ const pay = new X402PaymentHandler({
   defaultCurrency: 'XNO',
   nanoReceiptLedger: {
     // must be ONE atomic operation, e.g. a unique-index insert
-    claim: (hash, quoteId) => db.insertIfAbsent(hash, quoteId),
-    release: (hash) => db.delete(hash)
+    claim: (paymentId, quoteId) => db.insertIfAbsent(paymentId, quoteId)
   }
 });
 ```

@@ -18,6 +18,12 @@
  * Reading block_account for both is what lets a stranger present one of the
  * merchant's own outgoing sends as proof of payment, so the two subtypes are
  * kept apart below and every missing field is a rejection.
+ *
+ * One payment is also TWO blocks: the payer's send and the merchant's receive
+ * that pockets it. Both credit the pay-to account, so each verified block is
+ * reduced to one payment id - the send's own hash, or for a receive the hash of
+ * the send it pockets - and that id, not the presented hash, is what settles an
+ * order. Otherwise one payment settles two orders.
  */
 
 export interface NanoBlockInfo {
@@ -38,6 +44,11 @@ export interface NanoBlockInfo {
   linkAsAccount?: string;
   /** amount in raw (1 XNO = 10^30 raw) as a decimal string, when present */
   amountRaw?: string;
+  /**
+   * For a receive (or open), the hash of the send block it pockets
+   * (`contents.link` on a state block, `contents.source` on a legacy one).
+   */
+  sourceHash?: string;
 }
 
 export type NanoRpcLookup = (blockHash: string) => Promise<NanoBlockInfo | null>;
@@ -77,6 +88,7 @@ export const defaultNanoRpcLookup: NanoRpcLookup = async (
     blockAccount: (data.block_account as string) || (contents.account as string),
     linkAsAccount: contents.link_as_account as string,
     amountRaw: data.amount !== undefined ? String(data.amount) : undefined,
+    sourceHash: (contents.source as string) || (contents.link as string),
   };
 };
 
@@ -149,16 +161,23 @@ export function xnoToRaw(amountXno: number | string): string {
  * Fail-closed: any unreadable, unconfirmed, missing, or mismatched block is a
  * rejection, and so is a block whose payee field the node did not report.
  *
- * This says only that the block credits the merchant. It does NOT say the block
- * has not already paid for something else — one block settles one order, and
- * that is the caller's ledger to keep (see NanoReceiptLedger in x402.ts).
+ * This says only that the block credits the merchant. It does NOT say the
+ * payment has not already paid for something else — one payment settles one
+ * order, and that is the caller's ledger to keep, keyed on the returned
+ * `paymentId` (see NanoReceiptLedger in x402.ts).
  */
 export async function verifyNanoReceipt(
   blockHash: string,
   expectedPayTo: string,
   expectedRaw: string,
   lookup: NanoRpcLookup = defaultNanoRpcLookup
-): Promise<{ verified: boolean; reason?: string; info?: NanoBlockInfo }> {
+): Promise<{
+  verified: boolean;
+  reason?: string;
+  info?: NanoBlockInfo;
+  /** the send block this payment is, whichever of its two blocks was presented */
+  paymentId?: string;
+}> {
   if (!blockHash || !/^[0-9A-F]{64}$/i.test(blockHash)) {
     return { verified: false, reason: 'Nano block hash must be 64 hex chars' };
   }
@@ -179,6 +198,7 @@ export async function verifyNanoReceipt(
 
   // Which field names the payee depends entirely on the subtype.
   let payee: string | undefined;
+  let paymentId: string;
   if (info.subtype === 'receive' || info.subtype === 'open') {
     payee = info.blockAccount;
     if (!payee) {
@@ -188,6 +208,15 @@ export async function verifyNanoReceipt(
         info,
       };
     }
+    // The receive and the send it pockets are one payment: settle on the send.
+    if (!info.sourceHash || !/^[0-9A-F]{64}$/i.test(info.sourceHash)) {
+      return {
+        verified: false,
+        reason: 'Node reported no source send for the receive block',
+        info,
+      };
+    }
+    paymentId = info.sourceHash.toUpperCase();
   } else if (info.subtype === 'send') {
     // block_account on a send is the PAYER. The payee is the destination.
     payee = info.linkAsAccount;
@@ -198,6 +227,7 @@ export async function verifyNanoReceipt(
         info,
       };
     }
+    paymentId = blockHash.toUpperCase();
   } else {
     return {
       verified: false,
@@ -233,5 +263,5 @@ export async function verifyNanoReceipt(
       info,
     };
   }
-  return { verified: true, info };
+  return { verified: true, info, paymentId };
 }

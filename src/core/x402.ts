@@ -10,21 +10,26 @@ import { X402Challenge, PaymentProof, PaymentVerificationResult } from './types.
 import { NanoRpcLookup, defaultNanoRpcLookup, verifyNanoReceipt, xnoToRaw } from './nano.js';
 
 /**
- * One Nano block settles ONE order. A block hash is public and permanent, so
+ * One Nano payment settles ONE order. A block hash is public and permanent, so
  * without this ledger a single genuine receive confirms every later order at or
- * below its amount, forever.
+ * below its amount, forever. The key is the payment id from verifyNanoReceipt
+ * (the send block's hash), so a payment presented once as its send and once as
+ * the merchant's receive is still one payment.
  */
 export interface NanoReceiptLedger {
   /**
-   * Atomically claim a block hash for one order. Returns false when the hash has
+   * Atomically claim a payment id for one order. Returns false when it has
    * already settled an order - that is a replay and must be rejected.
    * An implementation spanning processes must make this ONE atomic operation
    * (a unique-index insert, Redis SETNX): a has()-then-add() pair lets two
    * concurrent requests settle on the same block.
    */
   claim(blockHash: string, quoteId: string): Promise<boolean> | boolean;
-  /** release a claim whose verification then failed, so an honest retry works */
-  release(blockHash: string): Promise<void> | void;
+  /**
+   * Not called by the handler any more (it claims only after a block verifies);
+   * kept optional so existing ledgers that implement it still type-check.
+   */
+  release?(blockHash: string): Promise<void> | void;
 }
 
 /**
@@ -262,8 +267,8 @@ export class X402PaymentHandler {
    * the merchant signed - never from an unauthenticated request body, or the
    * payer redirects the payment to an account they control and pays themselves.
    *
-   * Fail-closed: an unreadable, unconfirmed, mismatched or already-spent block is
-   * a rejection, never an acceptance.
+   * Fail-closed: an unreadable, unconfirmed, mismatched or already-spent payment
+   * is a rejection, never an acceptance.
    */
   public async verifyNanoSettlement(options: {
     txHash: string;
@@ -305,16 +310,9 @@ export class X402PaymentHandler {
       return { verified: false, error: 'A nano settlement amount must be above zero' };
     }
 
-    // Claim the block BEFORE verifying it, so two concurrent requests cannot
-    // both settle on one block; release it again if verification fails.
-    const claimed = await this.nanoReceiptLedger.claim(options.txHash, options.quoteId);
-    if (!claimed) {
-      return {
-        verified: false,
-        error: 'This Nano block has already settled an order',
-      };
-    }
-
+    // Verify first, then claim the PAYMENT (not the presented hash): a send and
+    // the receive that pockets it are two hashes for one payment. The claim is
+    // one atomic operation, so two concurrent requests still cannot both settle.
     let result;
     try {
       result = await verifyNanoReceipt(
@@ -324,13 +322,18 @@ export class X402PaymentHandler {
         this.nanoRpcLookup
       );
     } catch (err: unknown) {
-      await this.nanoReceiptLedger.release(options.txHash);
       const msg = err instanceof Error ? err.message : String(err);
       return { verified: false, error: `Nano settlement lookup failed: ${msg}` };
     }
-    if (!result.verified) {
-      await this.nanoReceiptLedger.release(options.txHash);
+    if (!result.verified || !result.paymentId) {
       return { verified: false, error: result.reason || 'Nano settlement not verified' };
+    }
+    const claimed = await this.nanoReceiptLedger.claim(result.paymentId, options.quoteId);
+    if (!claimed) {
+      return {
+        verified: false,
+        error: 'This Nano payment has already settled an order',
+      };
     }
     return {
       verified: true,
