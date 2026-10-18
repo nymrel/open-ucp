@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,13 +20,19 @@ function fixture(t) {
   return { cwd, target: join(cwd, 'ucp.config.json') };
 }
 
-function init(cwd, args = [], nodeArgs = []) {
+function runInit(cwd, args = [], nodeArgs = []) {
   const result = spawnSync(process.execPath, [...nodeArgs, cli, 'init', ...args], {
     cwd,
     encoding: 'utf8',
     timeout: 10_000
   });
   assert.ifError(result.error);
+  assert.deepEqual(readdirSync(cwd).filter(name => name.startsWith('.ucp-')), [], 'staging entries must be cleaned up');
+  return result;
+}
+
+function init(cwd, args = [], nodeArgs = []) {
+  const result = runInit(cwd, args, nodeArgs);
   assert.equal(result.status, 0, result.stderr);
   return result.stdout;
 }
@@ -67,7 +73,7 @@ test('CLI init refuses a dangling symlink without creating its target', (t) => {
   assert.equal(existsSync(destination), false);
 });
 
-test('CLI init preserves a file inserted immediately before the filesystem write', (t) => {
+test('CLI init preserves a file inserted immediately before atomic publication', (t) => {
   const { cwd, target } = fixture(t);
   const preload = join(cwd, 'concurrent-create.cjs');
   const sentinel = 'created by another process\n';
@@ -77,14 +83,35 @@ test('CLI init preserves a file inserted immediately before the filesystem write
 const fs = require('node:fs');
 const { syncBuiltinESMExports } = require('node:module');
 const originalWrite = fs.writeFileSync;
-fs.writeFileSync = function (file, ...args) {
-  if (file === ${JSON.stringify(target)}) {
-    originalWrite.call(this, file, ${JSON.stringify(sentinel)});
+const originalLink = fs.linkSync;
+fs.linkSync = function (source, destination) {
+  if (destination === ${JSON.stringify(target)}) {
+    originalWrite.call(fs, destination, ${JSON.stringify(sentinel)});
   }
-  return originalWrite.call(this, file, ...args);
+  return originalLink.call(this, source, destination);
 };
 syncBuiltinESMExports();
 `);
   assert.match(init(cwd, [], ['--require', preload]), /already exists.*Use --force to overwrite/);
   assert.equal(readFileSync(target, 'utf8'), sentinel);
+});
+
+test('CLI init fails closed and cleans staging files when atomic publication is unavailable', (t) => {
+  const { cwd, target } = fixture(t);
+  const preload = join(cwd, 'unsupported-link.cjs');
+  writeFileSync(preload, `
+const fs = require('node:fs');
+const { syncBuiltinESMExports } = require('node:module');
+fs.linkSync = function () {
+  const error = new Error('Atomic publication is unsupported in this fixture');
+  error.code = 'ENOTSUP';
+  throw error;
+};
+syncBuiltinESMExports();
+`);
+  const result = runInit(cwd, [], ['--require', preload]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /ENOTSUP/);
+  assert.doesNotMatch(result.stdout, /Scaffolded starter UCP configuration/);
+  assert.equal(existsSync(target), false);
 });

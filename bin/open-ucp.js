@@ -209,19 +209,33 @@ async function handleInit(args) {
     ]
   };
 
-  try {
-    // Create exclusively so a concurrent file or dangling symlink cannot bypass
-    // the default no-overwrite behavior. Overwriting still requires --force.
+  if (parsed.force) {
     fs.writeFileSync(targetFile, JSON.stringify(starterConfig, null, 2), {
       encoding: 'utf-8',
-      flag: parsed.force ? 'w' : 'wx'
+      flag: 'w'
     });
-  } catch (err) {
-    if (!parsed.force && err.code === 'EEXIST') {
-      console.log(`\x1b[33m[!] ucp.config.json already exists at ${targetFile}. Use --force to overwrite.\x1b[0m`);
-      return;
+  } else {
+    const stagingDirectory = fs.mkdtempSync(path.join(path.dirname(targetFile), '.ucp-init-'));
+    const stagedFile = path.join(stagingDirectory, 'ucp.config.json');
+    try {
+      fs.writeFileSync(stagedFile, JSON.stringify(starterConfig, null, 2), {
+        encoding: 'utf-8',
+        flag: 'wx'
+      });
+      // Publishing a hard link refuses any existing directory entry, including
+      // dangling symlinks on Windows. Unsupported filesystems fail closed.
+      try {
+        fs.linkSync(stagedFile, targetFile);
+      } catch (err) {
+        if (err.code === 'EEXIST') {
+          console.log(`\x1b[33m[!] ucp.config.json already exists at ${targetFile}. Use --force to overwrite.\x1b[0m`);
+          return;
+        }
+        throw err;
+      }
+    } finally {
+      fs.rmSync(stagingDirectory, { recursive: true, force: true });
     }
-    throw err;
   }
   console.log(`\x1b[32m[✓] Scaffolded starter UCP configuration:\x1b[0m ${targetFile}`);
   console.log(`\x1b[36m    Next steps:\x1b[0m`);
