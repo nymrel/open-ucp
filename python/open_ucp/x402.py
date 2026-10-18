@@ -62,6 +62,8 @@ class X402PaymentHandler:
         target_net = network or self.default_network
         if target_net == "nano":
             self._require_nano_configuration()
+            if target_curr != "XNO" or not target_pay_to.startswith("nano_"):
+                raise ValueError("Nano challenges require XNO and a nano_ pay-to address")
         ttl = ttl_seconds or self.challenge_ttl_seconds
         expires_at = (datetime.now(timezone.utc) + timedelta(seconds=ttl)).isoformat()
         amount_str = raw_to_xno(int(xno_to_raw(amount))) if target_curr == "XNO" else f"{amount:.2f}"

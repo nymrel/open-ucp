@@ -54,6 +54,10 @@ export class NegotiationEngine {
       );
     }
 
+    if (this.network === 'nano' && product.currency.toUpperCase() !== 'XNO') {
+      return this.generateRejectedQuote(request, product, 'Nano settlement requires prices quoted in XNO');
+    }
+
     const basePrice = product.basePrice;
     const isXno = product.currency.toUpperCase() === 'XNO';
     let effectiveUnitPrice = basePrice;

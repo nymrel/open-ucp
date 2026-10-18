@@ -115,7 +115,12 @@ export class X402PaymentHandler {
     const payTo = options.payTo || this.payTo;
     const currency = (options.currency || this.defaultCurrency).toUpperCase();
     const network = options.network || this.defaultNetwork;
-    if (network === 'nano') this.requireNanoConfiguration();
+    if (network === 'nano') {
+      this.requireNanoConfiguration();
+      if (currency !== 'XNO' || !payTo.startsWith('nano_')) {
+        throw new Error('Nano challenges require XNO and a nano_ pay-to address');
+      }
+    }
     const ttl = options.ttlSeconds || this.challengeTtlSeconds;
     const expiresAt = new Date(Date.now() + ttl * 1000).toISOString();
     const amountStr = currency === 'XNO' ? rawToXno(BigInt(xnoToRaw(options.amount))) : options.amount.toFixed(2);

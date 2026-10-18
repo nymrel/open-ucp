@@ -85,7 +85,7 @@ class TestNano(unittest.TestCase):
         self.assertFalse(engine.verify_quote(quote)["valid"])
 
     def test_precise_challenge(self):
-        handler = X402PaymentHandler(SECRET, default_currency="XNO", default_network="nano",
+        handler = X402PaymentHandler(SECRET, pay_to=PAYTO, default_currency="XNO", default_network="nano",
                                      nano_payment_authorizer=lambda _: True, nano_receipt_ledger=InMemoryNanoReceiptLedger())
         self.assertEqual(handler.create_challenge(1e-7)[1]["X-402-Amount"], "0.0000001")
 
@@ -282,3 +282,25 @@ class TestNanoASGI(unittest.IsolatedAsyncioTestCase):
             handler.create_challenge(1, network="nano")
         self.assertFalse((await handler.verify_nano_settlement(
             tx_hash=SEND, amount_xno=1, quote_id="q")).verified)
+
+    async def test_non_xno_quote_exposes_no_payable_instructions(self):
+        middleware = self.middleware()
+        product = middleware.catalog.get_product("micro")
+        product.currency = "USD"
+        status, quote = await self.post(middleware, "negotiate", {
+            "sku": "micro", "quantity": 1, "agentId": "agent", "clientNonce": "n"})
+        self.assertEqual(status, 200)
+        self.assertEqual(quote["status"], "rejected")
+        self.assertIn("XNO", quote["reason"])
+        self.assertNotIn("payTo", quote["settlementInstructions"])
+        self.assertNotIn("network", quote["settlementInstructions"])
+        product.currency = "XNO"
+        for stock in ["out_of_stock", "unlimited"]:
+            product.stock_status = stock
+            quote = middleware.negotiation_engine.create_quote(QuoteRequest("micro", -1, "agent", "n"), product)
+            self.assertEqual(quote.status, "rejected")
+            self.assertNotIn("payTo", quote.settlement_instructions)
+            self.assertNotIn("network", quote.settlement_instructions)
+        for options in [{"currency": "USD"}, {"currency": "XNO", "pay_to": "0x0"}]:
+            with self.assertRaisesRegex(ValueError, "Nano challenges require"):
+                middleware.payment_handler.create_challenge(1, network="nano", **options)

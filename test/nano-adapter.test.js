@@ -142,7 +142,7 @@ test('shared fixed USD and XNO signatures verify and settlement tampering fails'
 });
 
 test('Nano challenge headers preserve sub-cent precision', () => {
-  const handler = new X402PaymentHandler({ secretKey: SECRET, defaultNetwork: 'nano', defaultCurrency: 'XNO',
+  const handler = new X402PaymentHandler({ secretKey: SECRET, payTo: PAYTO, defaultNetwork: 'nano', defaultCurrency: 'XNO',
     nanoPaymentAuthorizer: () => true, nanoReceiptLedger: new InMemoryNanoReceiptLedger() });
   assert.equal(handler.createChallenge({ amount: 1e-7 }).headers['X-402-Amount'], '0.0000001');
 });
@@ -229,4 +229,28 @@ test('a non-Nano handler cannot settle Nano without explicit dependencies', asyn
   const result = await handler.verifyNanoSettlement({ txHash: SEND, amountXno: 1, quoteId: 'q' });
   assert.equal(result.verified, false);
   assert.match(result.error, /requires/);
+});
+
+test('Nano rejects a non-XNO catalog quote before exposing payable instructions', async t => {
+  const http = await server(t, config({ catalog: new ProductCatalog([{ ...product, currency: 'USD' }]) }));
+  const result = await http('negotiate', request());
+  assert.equal(result.status, 200);
+  assert.equal(result.body.status, 'rejected');
+  assert.match(result.body.reason, /XNO/);
+  assert.equal(result.body.settlementInstructions.payTo, undefined);
+  assert.equal(result.body.settlementInstructions.network, undefined);
+  const engine = new NegotiationEngine({ secretKey: SECRET, payTo: PAYTO, network: 'nano' });
+  for (const invalid of [{ ...product, stockStatus: 'out_of_stock' }, product]) {
+    const quote = engine.createQuote(request(-1), invalid);
+    assert.equal(quote.status, 'rejected');
+    assert.equal(quote.settlementInstructions.payTo, undefined);
+    assert.equal(quote.settlementInstructions.network, undefined);
+  }
+});
+
+test('Nano challenges reject unsupported currency or destination before payment', () => {
+  const handler = new X402PaymentHandler({ secretKey: SECRET, payTo: PAYTO,
+    nanoPaymentAuthorizer: () => true, nanoReceiptLedger: new InMemoryNanoReceiptLedger() });
+  assert.throws(() => handler.createChallenge({ amount: 1, network: 'nano', currency: 'USD' }), /require XNO/);
+  assert.throws(() => handler.createChallenge({ amount: 1, network: 'nano', currency: 'XNO', payTo: '0x0' }), /nano_/);
 });

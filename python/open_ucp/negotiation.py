@@ -55,6 +55,9 @@ class NegotiationEngine:
         if isinstance(request.quantity, bool) or request.quantity <= 0 or request.quantity > 2**53 - 1 or not math.isfinite(request.quantity):
             return self._generate_rejected_quote(request, product, "Invalid quantity requested")
 
+        if self.network == "nano" and product.currency.upper() != "XNO":
+            return self._generate_rejected_quote(request, product, "Nano settlement requires prices quoted in XNO")
+
         is_xno = product.currency.upper() == "XNO"
         base_price = product.base_price
         effective_unit_price = base_price
