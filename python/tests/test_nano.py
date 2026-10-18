@@ -376,3 +376,38 @@ class TestNanoASGI(unittest.IsolatedAsyncioTestCase):
             quote["quoteId"], quote["totalPrice"], quote["currency"], "agent")
         self.assertEqual((await self.post(middleware, "checkout", {
             "quote": quote, "paymentProof": token}))[0], 200)
+
+    async def test_malformed_checkout_aborts_before_payment_or_fulfillment(self):
+        calls = []
+        async def authorize(_):
+            calls.append("authorize")
+            return True
+        async def fulfill(_):
+            calls.append("fulfill")
+            return {}
+        class Ledger:
+            def claim(self, payment_id, quote_id):
+                calls.append("claim")
+                return True
+        middleware = self.middleware(nano_payment_authorizer=authorize,
+                                     nano_receipt_ledger=Ledger(), on_checkout_complete=fulfill)
+        async def tracked_lookup(block_hash):
+            calls.append("lookup")
+            return await lookup(block_hash)
+        middleware.payment_handler.nano_rpc_lookup = tracked_lookup
+        _, quote = await self.post(middleware, "negotiate", {
+            "sku": "micro", "quantity": 1, "agentId": "agent", "clientNonce": "n"})
+        for payload in [None, False, 7, "malformed", [], {}, {"quote": quote},
+                        {"paymentProof": {"txHash": SEND}}, {"quote": None, "paymentProof": {"txHash": SEND}}]:
+            status, body = await self.post(middleware, "checkout", payload)
+            self.assertEqual(status, 400)
+            self.assertEqual(body, {"error": "Missing required fields: quote, paymentProof"})
+        for malformed in [True, "invalid", {"sku": "wrong"}, {**quote, "signature": "invalid"}]:
+            status, body = await self.post(middleware, "checkout", {
+                "quote": malformed, "paymentProof": {"txHash": SEND}})
+            self.assertEqual(status, 422)
+            self.assertIsInstance(body["error"], str)
+        self.assertEqual(calls, [])
+        self.assertEqual((await self.post(middleware, "checkout", {
+            "quote": quote, "paymentProof": {"txHash": SEND}}))[0], 200)
+        self.assertEqual(calls, ["lookup", "authorize", "claim", "fulfill"])

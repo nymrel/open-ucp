@@ -121,6 +121,9 @@ class UCPFastAPIMiddleware:
         checkout_path = self.manifest.get("endpoints", {}).get("checkout", "/api/ucp/checkout")
         if method == "POST" and path == checkout_path:
             body = await self._read_json_body(receive)
+            if not isinstance(body, dict):
+                await self._send_json(send, 400, {"error": "Missing required fields: quote, paymentProof"})
+                return
             raw_quote = body.get("quote")
             payment_proof = body.get("paymentProof")
 

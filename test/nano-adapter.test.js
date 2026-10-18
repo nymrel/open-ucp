@@ -316,3 +316,28 @@ test('canonical raw formatting handles giant integer parts and trims only the bo
   assert.equal(rawToXno(-raw), '-' + whole + '.12345');
   assert.throws(() => xnoToRaw(whole), /literal is too long/);
 });
+
+test('malformed checkout bodies abort with client errors before any payment or fulfillment action', async t => {
+  const calls = [];
+  const http = await server(t, config({
+    nanoRpcLookup: async hash => { calls.push('lookup'); return lookup(hash); },
+    nanoPaymentAuthorizer() { calls.push('authorize'); return true; },
+    nanoReceiptLedger: { claim() { calls.push('claim'); return true; } },
+    onCheckoutComplete() { calls.push('fulfill'); return {}; },
+  }));
+  const quote = (await http('negotiate', request())).body;
+  for (const payload of [null, false, 7, 'malformed', [], {}, { quote },
+    { paymentProof: { txHash: SEND } }, { quote: null, paymentProof: { txHash: SEND } }]) {
+    const result = await http('checkout', payload);
+    assert.equal(result.status, 400);
+    assert.deepEqual(result.body, { error: 'Missing required fields: quote, paymentProof' });
+  }
+  for (const malformed of [true, 'invalid', [], {}, { ...quote, signature: 'invalid' }]) {
+    const result = await http('checkout', { quote: malformed, paymentProof: { txHash: SEND } });
+    assert.equal(result.status, 422);
+    assert.equal(typeof result.body.error, 'string');
+  }
+  assert.deepEqual(calls, []);
+  assert.equal((await http('checkout', checkout(quote))).status, 200);
+  assert.deepEqual(calls, ['lookup', 'authorize', 'claim', 'fulfill']);
+});

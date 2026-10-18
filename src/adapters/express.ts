@@ -131,32 +131,20 @@ export function ucpExpressMiddleware(config: UCPServerConfig) {
           paymentProof: PaymentProof | string;
         }>(req);
 
-        if (!body.quote || !body.paymentProof) {
-          res.statusCode = 400;
-          res.setHeader('Content-Type', 'application/json; charset=utf-8');
-          res.end(JSON.stringify({ error: 'Missing required fields: quote, paymentProof' }));
-          return;
-        }
+        if (!body || typeof body !== 'object' || !body.quote || !body.paymentProof)
+          return sendJsonError(res, 400, 'Missing required fields: quote, paymentProof');
 
         // Verify quote
         const quoteVerify = negotiationEngine.verifyQuote(body.quote);
-        if (!quoteVerify.valid) {
-          res.statusCode = 422;
-          res.setHeader('Content-Type', 'application/json; charset=utf-8');
-          res.end(JSON.stringify({ error: quoteVerify.reason || 'Invalid or expired quote' }));
-          return;
-        }
+        if (!quoteVerify.valid)
+          return sendJsonError(res, 422, quoteVerify.reason || 'Invalid or expired quote');
 
         // A valid signature can come from another endpoint sharing this key.
         // Require this merchant's configured settlement before selecting its verifier.
         const settlement = body.quote.settlementInstructions;
         if (settlement?.protocol !== 'x402' || settlement?.network !== configuredNetwork
-          || settlement?.payTo !== configuredPayTo) {
-          res.statusCode = 422;
-          res.setHeader('Content-Type', 'application/json; charset=utf-8');
-          res.end(JSON.stringify({ error: 'Quote settlement does not match this merchant' }));
-          return;
-        }
+          || settlement?.payTo !== configuredPayTo)
+          return sendJsonError(res, 422, 'Quote settlement does not match this merchant');
 
         // Nano always verifies chain evidence plus trusted order authorization;
         // neither a request-supplied rail nor a missing txHash can select HMAC.
@@ -175,12 +163,8 @@ export function ucpExpressMiddleware(config: UCPServerConfig) {
         } else {
           paymentVerify = paymentHandler.verifyPayment(proof);
         }
-        if (!paymentVerify.verified) {
-          res.statusCode = 402;
-          res.setHeader('Content-Type', 'application/json; charset=utf-8');
-          res.end(JSON.stringify({ error: paymentVerify.error || 'Payment proof verification failed' }));
-          return;
-        }
+        if (!paymentVerify.verified)
+          return sendJsonError(res, 402, paymentVerify.error || 'Payment proof verification failed');
 
         let fulfillResult: Record<string, unknown> = {};
         if (config.onCheckoutComplete) {
@@ -274,6 +258,12 @@ export function requireX402(options: {
       next();
     }
   };
+}
+
+function sendJsonError(res: ServerResponse, statusCode: number, error: string): void {
+  res.statusCode = statusCode;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.end(JSON.stringify({ error }));
 }
 
 async function parseJsonBody<T>(req: IncomingMessage & { body?: any }): Promise<T> {
