@@ -101,6 +101,13 @@ test("CodeQL is least privilege and covers both implementation languages", () =>
   assert(uses.includes(`actions/checkout@${pins.checkout}`));
   assert.equal(uses.filter((use) => use === `github/codeql-action/init@${pins.codeql}`).length, 1);
   assert.equal(uses.filter((use) => use === `github/codeql-action/analyze@${pins.codeql}`).length, 1);
+  assert(uses.includes(`actions/upload-artifact@${pins.uploadArtifact}`));
+  assert(codeql.includes("output: codeql-results"));
+  assert(codeql.includes("path: codeql-results/*.sarif"));
+  assert(codeql.includes("name: codeql-sarif-${{ matrix.language }}"));
+  assert(codeql.includes("if: always()"));
+  assert(codeql.includes("retention-days: 3"));
+  assert(!codeql.includes("continue-on-error"));
 });
 
 test("release is tag-only, tokenless, artifact-gated, and environment-scoped", () => {
