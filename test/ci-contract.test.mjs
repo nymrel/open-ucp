@@ -107,6 +107,8 @@ test("CodeQL is least privilege and covers both implementation languages", () =>
   assert(codeql.includes("name: codeql-sarif-${{ matrix.language }}"));
   assert(codeql.includes("if: always()"));
   assert(codeql.includes("retention-days: 3"));
+  assert(codeql.includes("Summarize high-severity CodeQL findings for review"));
+  assert(codeql.includes('print("CODEQL_REVIEW " + json.dumps(finding, ensure_ascii=True))'));
   assert(!codeql.includes("continue-on-error"));
 });
 
