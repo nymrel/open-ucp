@@ -7,7 +7,7 @@
 
 import * as crypto from 'node:crypto';
 import { X402Challenge, PaymentProof, PaymentVerificationResult } from './types.js';
-import { NanoRpcLookup, defaultNanoRpcLookup, verifyNanoReceipt, xnoToRaw, rawToXno } from './nano.js';
+import { NanoRpcLookup, NanoPaymentAuthorizer, defaultNanoRpcLookup, verifyNanoReceipt, xnoToRaw, rawToXno } from './nano.js';
 
 /**
  * One Nano payment settles ONE order. A block hash is public and permanent, so
@@ -33,9 +33,9 @@ export interface NanoReceiptLedger {
 }
 
 /**
- * Default in-process ledger. Correct for a single-process merchant; a merchant
- * running more than one process or box MUST pass a shared store instead, or the
- * same block settles once per process.
+ * Development-only in-process ledger. Production merchants MUST pass a durable
+ * shared store, including a single worker that may restart, or payments replay
+ * after restart or once per process. This ledger does not authorize invoice binding.
  */
 export class InMemoryNanoReceiptLedger implements NanoReceiptLedger {
   private spent = new Map<string, string>();
@@ -59,10 +59,12 @@ export interface X402Options {
   /** optional Nano RPC lookup override; defaults to a public node via block_info */
   nanoRpcLookup?: NanoRpcLookup;
   /**
-   * Ledger of Nano block hashes already spent on an order. Defaults to an
-   * in-process one; pass a shared store when running more than one process.
+   * Required for Nano. Production requires an app-owned durable shared store.
+   * Explicitly select InMemoryNanoReceiptLedger only for development/tests.
    */
   nanoReceiptLedger?: NanoReceiptLedger;
+  /** Required for Nano settlement: independently authorize this payment for this order. */
+  nanoPaymentAuthorizer?: NanoPaymentAuthorizer;
 }
 
 export class X402PaymentHandler {
@@ -72,7 +74,8 @@ export class X402PaymentHandler {
   private defaultCurrency: string;
   private challengeTtlSeconds: number;
   private nanoRpcLookup: NanoRpcLookup;
-  private nanoReceiptLedger: NanoReceiptLedger;
+  private nanoReceiptLedger?: NanoReceiptLedger;
+  private nanoPaymentAuthorizer?: NanoPaymentAuthorizer;
 
   constructor(options: X402Options) {
     if (!options.secretKey) {
@@ -84,8 +87,16 @@ export class X402PaymentHandler {
     this.defaultCurrency = options.defaultCurrency || 'USD';
     this.challengeTtlSeconds = options.challengeTtlSeconds || 300;
     this.nanoRpcLookup = options.nanoRpcLookup || defaultNanoRpcLookup;
-    this.nanoReceiptLedger =
-      options.nanoReceiptLedger || new InMemoryNanoReceiptLedger();
+    this.nanoPaymentAuthorizer = options.nanoPaymentAuthorizer;
+    this.nanoReceiptLedger = options.nanoReceiptLedger;
+    if (this.defaultNetwork === 'nano') this.requireNanoConfiguration();
+  }
+
+  private requireNanoConfiguration(): void {
+    if (typeof this.nanoPaymentAuthorizer !== 'function' || !this.nanoReceiptLedger
+      || typeof this.nanoReceiptLedger.claim !== 'function') {
+      throw new Error('Nano requires a trusted payment authorizer and an explicit receipt ledger before offering payment instructions');
+    }
   }
 
   /**
@@ -104,6 +115,7 @@ export class X402PaymentHandler {
     const payTo = options.payTo || this.payTo;
     const currency = (options.currency || this.defaultCurrency).toUpperCase();
     const network = options.network || this.defaultNetwork;
+    if (network === 'nano') this.requireNanoConfiguration();
     const ttl = options.ttlSeconds || this.challengeTtlSeconds;
     const expiresAt = new Date(Date.now() + ttl * 1000).toISOString();
     const amountStr = currency === 'XNO' ? rawToXno(BigInt(xnoToRaw(options.amount))) : options.amount.toFixed(2);
@@ -299,6 +311,9 @@ export class X402PaymentHandler {
         error: 'A nano settlement must name the quote it settles',
       };
     }
+    if (typeof this.nanoPaymentAuthorizer !== 'function' || !this.nanoReceiptLedger) {
+      return { verified: false, error: 'Nano settlement requires trusted order-bound payment authorization and an explicit receipt ledger' };
+    }
     let expectedRaw: string;
     try {
       expectedRaw = xnoToRaw(options.amountXno);
@@ -328,13 +343,26 @@ export class X402PaymentHandler {
     if (!result.verified || !result.paymentId) {
       return { verified: false, error: result.reason || 'Nano settlement not verified' };
     }
+    // A public receipt proves chain state, not ownership. Authorize before the
+    // spent-ledger claim so a stranger cannot steal or burn a buyer's payment.
+    try {
+      const authorized = await this.nanoPaymentAuthorizer({
+        paymentId: result.paymentId, quoteId: options.quoteId, payTo,
+        amountRaw: expectedRaw, block: result.info!
+      });
+      if (authorized !== true) {
+        return { verified: false, error: 'Nano payment is not authorized for this order' };
+      }
+    } catch {
+      return { verified: false, error: 'Nano payment authorization unavailable' };
+    }
     let claimed: boolean;
     try {
       claimed = await this.nanoReceiptLedger.claim(result.paymentId, options.quoteId);
     } catch {
       return { verified: false, error: 'Nano receipt ledger unavailable' };
     }
-    if (!claimed) {
+    if (claimed !== true) {
       return {
         verified: false,
         error: 'This Nano payment has already settled an order',

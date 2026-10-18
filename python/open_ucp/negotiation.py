@@ -52,7 +52,7 @@ class NegotiationEngine:
         if product.stock_status == "out_of_stock":
             return self._generate_rejected_quote(request, product, "Item is currently out of stock")
 
-        if request.quantity <= 0 or not math.isfinite(request.quantity):
+        if isinstance(request.quantity, bool) or request.quantity <= 0 or request.quantity > 2**53 - 1 or not math.isfinite(request.quantity):
             return self._generate_rejected_quote(request, product, "Invalid quantity requested")
 
         is_xno = product.currency.upper() == "XNO"
@@ -195,7 +195,7 @@ class NegotiationEngine:
         self,
         quote_id: str,
         sku: str,
-        quantity: int,
+        quantity: int | float,
         total_price: float | str,
         currency: str,
         expires_at: str,
@@ -203,6 +203,8 @@ class NegotiationEngine:
         client_nonce: str,
         settlement_instructions: dict
     ) -> str:
+        if isinstance(quantity, bool) or quantity <= 0 or quantity > 2**53 - 1 or not math.isfinite(quantity):
+            raise ValueError("Quote quantity must be positive and within the binary64 safe integer range")
         settlement = settlement_instructions or {"protocol": self.default_protocol}
         instructions = json.dumps([
             settlement.get("protocol"), settlement.get("payTo") or "",

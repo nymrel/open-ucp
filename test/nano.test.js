@@ -8,7 +8,7 @@
 import { test, describe } from 'node:test';
 import * as assert from 'node:assert';
 import {
-  X402PaymentHandler, NegotiationEngine, xnoToRaw, verifyNanoReceipt,
+  X402PaymentHandler, NegotiationEngine, xnoToRaw, verifyNanoReceipt, InMemoryNanoReceiptLedger,
 } from '../dist/index.js';
 
 const PAYTO = 'nano_3f3r9t6r8n7y5d1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p7';
@@ -34,9 +34,10 @@ const sendTo = (from, to, raw = 10n ** 25n) => ({
   blockAccount: from, linkAsAccount: to, amountRaw: raw.toString(),
 });
 
+// Test-only authorizer isolates chain/replay checks. HTTP tests use trusted invoice bindings.
 const nanoHandler = (lookup, opts = {}) => new X402PaymentHandler({
   secretKey: 'k', payTo: PAYTO, defaultNetwork: 'nano', defaultCurrency: 'XNO',
-  nanoRpcLookup: lookup, ...opts,
+  nanoRpcLookup: lookup, nanoReceiptLedger: new InMemoryNanoReceiptLedger(), nanoPaymentAuthorizer: () => true, ...opts,
 });
 
 describe('xnoToRaw (unit conversion)', () => {

@@ -10,7 +10,7 @@ from .core import ProductCatalog
 from .negotiation import NegotiationEngine
 from .x402 import X402PaymentHandler
 from .types import QuoteRequest, SignedQuote
-from .nano import NanoRpcLookup, NanoReceiptLedger
+from .nano import NanoRpcLookup, NanoReceiptLedger, NanoPaymentAuthorizer
 
 
 class UCPFastAPIMiddleware:
@@ -30,7 +30,8 @@ class UCPFastAPIMiddleware:
         secret_key: str,
         on_checkout_complete: Optional[Callable[[Dict[str, Any]], Awaitable[Dict[str, Any]]]] = None,
         nano_rpc_lookup: Optional[NanoRpcLookup] = None,
-        nano_receipt_ledger: Optional[NanoReceiptLedger] = None
+        nano_receipt_ledger: Optional[NanoReceiptLedger] = None,
+        nano_payment_authorizer: Optional[NanoPaymentAuthorizer] = None
     ):
         self.app = app
         self.manifest = manifest
@@ -51,7 +52,8 @@ class UCPFastAPIMiddleware:
             default_network=manifest.get("paymentRails", {}).get("x402", {}).get("defaultNetwork", "polygon"),
             default_currency=manifest.get("catalogSummary", {}).get("currency", "USD"),
             nano_rpc_lookup=nano_rpc_lookup,
-            nano_receipt_ledger=nano_receipt_ledger
+            nano_receipt_ledger=nano_receipt_ledger,
+            nano_payment_authorizer=nano_payment_authorizer
         )
 
     async def __call__(self, scope: Dict[str, Any], receive: Callable, send: Callable) -> None:
@@ -85,25 +87,30 @@ class UCPFastAPIMiddleware:
         # 3. Negotiate
         negotiate_path = self.manifest.get("endpoints", {}).get("negotiate", "/api/ucp/negotiate")
         if method == "POST" and path == negotiate_path:
-            body = await self._read_json_body(receive)
-            if not body.get("sku") or not body.get("quantity") or not body.get("agentId"):
-                await self._send_json(send, 400, {"error": "Missing required fields: sku, quantity, agentId"})
-                return
+            try:
+                body = await self._read_json_body(receive)
+                if not isinstance(body, dict):
+                    raise ValueError("Expected a JSON object")
+                if not body.get("sku") or not body.get("quantity") or not body.get("agentId"):
+                    await self._send_json(send, 400, {"error": "Missing required fields: sku, quantity, agentId"})
+                    return
 
-            product = self.catalog.get_product(body["sku"])
-            if not product:
-                await self._send_json(send, 404, {"error": f"Product SKU '{body['sku']}' not found in catalog"})
-                return
+                product = self.catalog.get_product(body["sku"])
+                if not product:
+                    await self._send_json(send, 404, {"error": f"Product SKU '{body['sku']}' not found in catalog"})
+                    return
 
-            req_obj = QuoteRequest(
-                sku=body["sku"],
-                quantity=body["quantity"],
-                agent_id=body["agentId"],
-                client_nonce=body.get("clientNonce", "0"),
-                proposed_price=float(body["proposedPrice"]) if "proposedPrice" in body else None
-            )
-            quote = self.negotiation_engine.create_quote(req_obj, product)
-            await self._send_json(send, 200, quote.to_dict())
+                req_obj = QuoteRequest(
+                    sku=body["sku"],
+                    quantity=body["quantity"],
+                    agent_id=body["agentId"],
+                    client_nonce=body.get("clientNonce", "0"),
+                    proposed_price=float(body["proposedPrice"]) if "proposedPrice" in body else None
+                )
+                quote = self.negotiation_engine.create_quote(req_obj, product)
+                await self._send_json(send, 200, quote.to_dict())
+            except (KeyError, TypeError, ValueError) as error:
+                await self._send_json(send, 400, {"error": str(error)})
             return
 
         # 4. Checkout

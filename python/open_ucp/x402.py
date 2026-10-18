@@ -5,7 +5,7 @@ Copyright (c) 2026 Nymrel / JalenBuilds LLC. Licensed under MIT.
 """
 
 import inspect
-from .nano import (NanoRpcLookup, NanoReceiptLedger, InMemoryNanoReceiptLedger,
+from .nano import (NanoRpcLookup, NanoReceiptLedger, NanoPaymentAuthorizer,
                    default_nano_rpc_lookup, verify_nano_receipt, xno_to_raw, raw_to_xno)
 import hmac
 import hashlib
@@ -26,17 +26,25 @@ class X402PaymentHandler:
         default_currency: str = "USD",
         challenge_ttl_seconds: int = 300,
         nano_rpc_lookup: Optional[NanoRpcLookup] = None,
-        nano_receipt_ledger: Optional[NanoReceiptLedger] = None
+        nano_receipt_ledger: Optional[NanoReceiptLedger] = None,
+        nano_payment_authorizer: Optional[NanoPaymentAuthorizer] = None
     ):
         if not secret_key:
             raise ValueError("X402PaymentHandler requires secret_key for cryptographic verification.")
         self.nano_rpc_lookup = nano_rpc_lookup or default_nano_rpc_lookup
-        self.nano_receipt_ledger = nano_receipt_ledger if nano_receipt_ledger is not None else InMemoryNanoReceiptLedger()
+        self.nano_payment_authorizer = nano_payment_authorizer
+        self.nano_receipt_ledger = nano_receipt_ledger
         self.secret_key = secret_key
         self.pay_to = pay_to
         self.default_network = default_network
         self.default_currency = default_currency
         self.challenge_ttl_seconds = challenge_ttl_seconds
+        if self.default_network == "nano":
+            self._require_nano_configuration()
+
+    def _require_nano_configuration(self):
+        if not callable(self.nano_payment_authorizer) or not callable(getattr(self.nano_receipt_ledger, "claim", None)):
+            raise ValueError("Nano requires a trusted payment authorizer and an explicit receipt ledger before offering payment instructions")
 
     def create_challenge(
         self,
@@ -52,6 +60,8 @@ class X402PaymentHandler:
         target_pay_to = pay_to or self.pay_to
         target_curr = (currency or self.default_currency).upper()
         target_net = network or self.default_network
+        if target_net == "nano":
+            self._require_nano_configuration()
         ttl = ttl_seconds or self.challenge_ttl_seconds
         expires_at = (datetime.now(timezone.utc) + timedelta(seconds=ttl)).isoformat()
         amount_str = raw_to_xno(int(xno_to_raw(amount))) if target_curr == "XNO" else f"{amount:.2f}"
@@ -179,6 +189,8 @@ class X402PaymentHandler:
             return PaymentVerificationResult(False, error="A nano settlement must be quoted in XNO")
         if not quote_id:
             return PaymentVerificationResult(False, error="A nano settlement must name the quote it settles")
+        if not callable(self.nano_payment_authorizer) or self.nano_receipt_ledger is None:
+            return PaymentVerificationResult(False, error="Nano settlement requires trusted order-bound payment authorization and an explicit receipt ledger")
         try:
             expected = xno_to_raw(amount_xno)
             if int(expected) <= 0:
@@ -186,14 +198,22 @@ class X402PaymentHandler:
             result = await verify_nano_receipt(tx_hash, destination, expected, self.nano_rpc_lookup)
             if not result["verified"]:
                 return PaymentVerificationResult(False, error=result.get("reason"))
+            authorized = self.nano_payment_authorizer({
+                "paymentId": result["paymentId"], "quoteId": quote_id,
+                "payTo": destination, "amountRaw": expected, "block": result["info"]
+            })
+            if inspect.isawaitable(authorized):
+                authorized = await authorized
+            if authorized is not True:
+                return PaymentVerificationResult(False, error="Nano payment is not authorized for this order")
             claimed = self.nano_receipt_ledger.claim(result["paymentId"], quote_id)
             if inspect.isawaitable(claimed):
                 claimed = await claimed
-            if not claimed:
+            if claimed is not True:
                 return PaymentVerificationResult(False, error="This Nano payment has already settled an order")
             return PaymentVerificationResult(
                 True, receipt_id="ucp_nano_" + tx_hash[:24], amount=amount_xno,
                 currency="XNO", payer_id=tx_hash
             )
         except Exception as error:
-            return PaymentVerificationResult(False, error=f"Nano settlement lookup or ledger failed: {error}")
+            return PaymentVerificationResult(False, error=f"Nano settlement lookup, authorization or ledger failed: {error}")

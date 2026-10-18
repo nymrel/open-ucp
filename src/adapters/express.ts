@@ -10,7 +10,7 @@ import { UCPManifest, QuoteRequest, PaymentProof } from '../core/types.js';
 import { ProductCatalog } from '../core/catalog.js';
 import { NegotiationEngine } from '../negotiation/engine.js';
 import { X402PaymentHandler, NanoReceiptLedger } from '../core/x402.js';
-import { NanoRpcLookup } from '../core/nano.js';
+import { NanoRpcLookup, NanoPaymentAuthorizer } from '../core/nano.js';
 
 export interface UCPServerConfig {
   manifest: UCPManifest;
@@ -19,6 +19,7 @@ export interface UCPServerConfig {
   /** Use a durable atomic store shared by every worker and retained across restarts. */
   nanoReceiptLedger?: NanoReceiptLedger;
   nanoRpcLookup?: NanoRpcLookup;
+  nanoPaymentAuthorizer?: NanoPaymentAuthorizer;
   onCheckoutComplete?: (data: {
     quoteId: string;
     sku: string;
@@ -47,7 +48,8 @@ export function ucpExpressMiddleware(config: UCPServerConfig) {
     defaultNetwork: config.manifest.paymentRails?.x402?.defaultNetwork,
     defaultCurrency: config.manifest.catalogSummary?.currency || 'USD',
     nanoReceiptLedger: config.nanoReceiptLedger,
-    nanoRpcLookup: config.nanoRpcLookup
+    nanoRpcLookup: config.nanoRpcLookup,
+    nanoPaymentAuthorizer: config.nanoPaymentAuthorizer
   });
 
   return async (req: IncomingMessage & { body?: any; url?: string; method?: string }, res: ServerResponse, next?: ExpressNextFunction) => {

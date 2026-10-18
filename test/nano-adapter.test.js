@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 import {
   ucpExpressMiddleware, ProductCatalog, createDefaultManifest,
-  NegotiationEngine, xnoToRaw, rawToXno, X402PaymentHandler,
+  NegotiationEngine, xnoToRaw, rawToXno, X402PaymentHandler, InMemoryNanoReceiptLedger,
 } from '../dist/index.js';
 
 const PAYTO = 'nano_test_merchant';
@@ -15,11 +15,12 @@ const product = {
   sku: 'MICRO', title: 'Micro', description: 'tiny price', basePrice: 0.00001,
   currency: 'XNO', unit: 'call', stockStatus: 'unlimited',
 };
+// Default test-only authorization isolates amount/replay cases; security cases override it.
 function config(overrides = {}) {
   const manifest = createDefaultManifest({ payTo: PAYTO });
   manifest.paymentRails.x402.defaultNetwork = 'nano';
   manifest.catalogSummary.currency = 'XNO';
-  return { manifest, secretKey: SECRET, catalog: new ProductCatalog([product]), ...overrides };
+  return { manifest, secretKey: SECRET, nanoReceiptLedger: new InMemoryNanoReceiptLedger(), nanoPaymentAuthorizer: () => true, catalog: new ProductCatalog([product]), ...overrides };
 }
 const lookup = async (hash) => ({
   hash, exists: true, confirmed: true, subtype: hash.toUpperCase() === SEND ? 'send' : 'receive',
@@ -141,6 +142,91 @@ test('shared fixed USD and XNO signatures verify and settlement tampering fails'
 });
 
 test('Nano challenge headers preserve sub-cent precision', () => {
-  const handler = new X402PaymentHandler({ secretKey: SECRET, defaultNetwork: 'nano', defaultCurrency: 'XNO' });
+  const handler = new X402PaymentHandler({ secretKey: SECRET, defaultNetwork: 'nano', defaultCurrency: 'XNO',
+    nanoPaymentAuthorizer: () => true, nanoReceiptLedger: new InMemoryNanoReceiptLedger() });
   assert.equal(handler.createChallenge({ amount: 1e-7 }).headers['X-402-Amount'], '0.0000001');
+});
+
+test('public receipts cannot claim another invoice or historical deposits, and denial does not burn the payment', async t => {
+  const bindings = new Map(); // Registered by a trusted invoice service, never by checkout input.
+  const spent = new Map();
+  let claims = 0;
+  const fulfilled = [];
+  const historical = 'C'.repeat(64);
+  const options = config({
+    nanoRpcLookup: async hash => hash === historical
+      ? { ...await lookup(SEND), hash } : lookup(hash),
+    nanoPaymentAuthorizer: async payment => {
+      assert.equal(payment.payTo, PAYTO);
+      assert.equal(payment.block.confirmed, true);
+      return bindings.get(payment.paymentId) === payment.quoteId;
+    },
+    nanoReceiptLedger: { claim(id, quoteId) {
+      claims++;
+      if (spent.has(id)) return false;
+      spent.set(id, quoteId); return true;
+    } },
+    onCheckoutComplete: data => { fulfilled.push(data.quoteId); return {}; },
+  });
+  const http = await server(t, options);
+  const rightful = (await http('negotiate', request(3))).body;
+  const attacker = (await http('negotiate', request(1))).body;
+  bindings.set(SEND, rightful.quoteId);
+  for (const hash of [SEND.toLowerCase(), RECEIVE, historical]) {
+    assert.equal((await http('checkout', checkout(attacker, hash))).status, 402);
+  }
+  assert.equal(claims, 0);
+  assert.deepEqual(fulfilled, []);
+  const results = await Promise.all([
+    http('checkout', checkout(rightful, SEND.toLowerCase())),
+    http('checkout', checkout(rightful, RECEIVE)),
+  ]);
+  assert.deepEqual(results.map(r => r.status).sort(), [200, 402]);
+  assert.deepEqual(fulfilled, [rightful.quoteId]);
+  const restarted = await server(t, options);
+  assert.equal((await restarted('checkout', checkout(rightful))).status, 402);
+  assert.equal(spent.get(SEND), rightful.quoteId);
+});
+
+test('false, non-boolean, or failing Nano authorization never reaches the spent ledger', async t => {
+  for (const authorize of [() => false, () => 'true', async () => { throw new Error('invoice service offline'); }]) {
+    let claims = 0;
+    let fulfilled = false;
+    const http = await server(t, config({
+      nanoRpcLookup: lookup, nanoPaymentAuthorizer: authorize,
+      nanoReceiptLedger: { claim() { claims++; return true; } },
+      onCheckoutComplete() { fulfilled = true; return {}; },
+    }));
+    const quote = (await http('negotiate', request())).body;
+    assert.equal((await http('checkout', checkout(quote))).status, 402);
+    assert.equal(claims, 0);
+    assert.equal(fulfilled, false);
+  }
+});
+
+test('quantities outside binary64 safe range are never signed, while fractional quantities remain supported', () => {
+  const engine = new NegotiationEngine({ secretKey: SECRET });
+  for (const quantity of [Number.MAX_SAFE_INTEGER + 1, 1e100]) {
+    assert.equal(engine.createQuote(request(quantity), product).status, 'rejected');
+  }
+  assert.equal(engine.createQuote(request(0.5), product).totalPrice, '0.000005');
+  const quote = engine.createQuote(request(Number.MAX_SAFE_INTEGER), product);
+  assert.equal(engine.verifyQuote(quote).valid, true);
+  assert.equal(engine.verifyQuote({ ...quote, quantity: Number.MAX_SAFE_INTEGER + 1 }).valid, false);
+});
+
+test('Nano adapters and challenges refuse missing dependencies before issuing payable instructions', () => {
+  for (const overrides of [{ nanoPaymentAuthorizer: undefined }, { nanoReceiptLedger: undefined }]) {
+    assert.throws(() => ucpExpressMiddleware(config(overrides)), /Nano requires/);
+  }
+  const handler = new X402PaymentHandler({ secretKey: SECRET });
+  assert.doesNotThrow(() => handler.createChallenge({ amount: 1 }));
+  assert.throws(() => handler.createChallenge({ amount: 1, network: 'nano' }), /Nano requires/);
+});
+
+test('a non-Nano handler cannot settle Nano without explicit dependencies', async () => {
+  const handler = new X402PaymentHandler({ secretKey: SECRET, payTo: PAYTO, nanoRpcLookup: lookup });
+  const result = await handler.verifyNanoSettlement({ txHash: SEND, amountXno: 1, quoteId: 'q' });
+  assert.equal(result.verified, false);
+  assert.match(result.error, /requires/);
 });

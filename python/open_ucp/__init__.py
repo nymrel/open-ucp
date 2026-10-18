@@ -30,7 +30,7 @@ from .core import (
 from .negotiation import NegotiationEngine
 
 from .x402 import X402PaymentHandler
-from .nano import (NanoReceiptLedger, InMemoryNanoReceiptLedger, default_nano_rpc_lookup,
+from .nano import (NanoReceiptLedger, NanoPaymentAuthorizer, InMemoryNanoReceiptLedger, default_nano_rpc_lookup,
                    xno_to_raw, raw_to_xno, verify_nano_receipt)
 
 from .validator import UCPValidator
@@ -58,6 +58,7 @@ __all__ = [
     "NegotiationEngine",
     "X402PaymentHandler",
     "NanoReceiptLedger",
+    "NanoPaymentAuthorizer",
     "InMemoryNanoReceiptLedger",
     "default_nano_rpc_lookup",
     "xno_to_raw",

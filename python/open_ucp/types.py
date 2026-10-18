@@ -164,7 +164,7 @@ class ProductOffer:
 @dataclass
 class QuoteRequest:
     sku: str
-    quantity: int
+    quantity: int | float
     agent_id: str
     client_nonce: str
     target_currency: Optional[str] = None
@@ -177,7 +177,7 @@ class QuoteRequest:
 class SignedQuote:
     quote_id: str
     sku: str
-    quantity: int
+    quantity: int | float
     unit_price: float
     total_price: float | str
     currency: str

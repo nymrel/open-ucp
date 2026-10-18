@@ -46,7 +46,7 @@ export class NegotiationEngine {
       );
     }
 
-    if (request.quantity <= 0 || !Number.isFinite(request.quantity)) {
+    if (request.quantity <= 0 || !Number.isFinite(request.quantity) || request.quantity > Number.MAX_SAFE_INTEGER) {
       return this.generateRejectedQuote(
         request,
         product,
@@ -280,6 +280,9 @@ export class NegotiationEngine {
     clientNonce: string;
     settlementInstructions: SignedQuote['settlementInstructions'];
   }): string {
+    if (!Number.isFinite(payload.quantity) || payload.quantity <= 0 || payload.quantity > Number.MAX_SAFE_INTEGER) {
+      throw new Error('Quote quantity must be positive and within the binary64 safe integer range');
+    }
     const settlement = payload.settlementInstructions || { protocol: this.defaultProtocol };
     const serialized = [
       payload.quoteId,

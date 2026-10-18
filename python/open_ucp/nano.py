@@ -12,6 +12,9 @@ from urllib.request import Request, urlopen
 
 XNO_RAW = 10 ** 30
 NanoRpcLookup = Callable[[str], Awaitable[Optional[dict]]]
+# Return True only for an independently registered, authenticated invoice binding.
+# A public receipt or its first claimant does not establish payment authorization.
+NanoPaymentAuthorizer = Callable[[dict], bool | Awaitable[bool]]
 
 
 def xno_to_raw(amount: float | str) -> str:

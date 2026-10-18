@@ -53,6 +53,22 @@ export interface NanoBlockInfo {
 
 export type NanoRpcLookup = (blockHash: string) => Promise<NanoBlockInfo | null>;
 
+/** Chain evidence is public; the merchant must independently bind it to an order. */
+export interface NanoPaymentAuthorization {
+  paymentId: string;
+  quoteId: string;
+  payTo: string;
+  amountRaw: string;
+  block: NanoBlockInfo;
+}
+
+/**
+ * Required for settlement. Return true only for a trusted, previously registered
+ * invoice binding (for example, authenticated payer authorization over this order).
+ * Accepting a public hash or recording its first claimant does not authorize it.
+ */
+export type NanoPaymentAuthorizer = (payment: NanoPaymentAuthorization) => Promise<boolean> | boolean;
+
 /**
  * Default RPC lookup against a public Nano node via block_info.
  * The node is queried without authentication and never moves the payer's funds —
@@ -181,6 +197,7 @@ export function xnoTotal(unitPrice: number, quantity: number): bigint {
  * Fail-closed: any unreadable, unconfirmed, missing, or mismatched block is a
  * rejection, and so is a block whose payee field the node did not report.
  *
+ * This is chain evidence only; it does not authenticate a payer or bind an order.
  * This says only that the block credits the merchant. It does NOT say the
  * payment has not already paid for something else — one payment settles one
  * order, and that is the caller's ledger to keep, keyed on the returned

@@ -71,14 +71,28 @@ class TestNano(unittest.TestCase):
         with self.assertRaises(ValueError):
             engine.create_quote(request, product)
 
+    def test_unsafe_quantities_are_not_signed(self):
+        engine = NegotiationEngine(secret_key=SECRET)
+        product = ProductOffer("micro", "Micro", "tiny", 0.00001, currency="XNO")
+        for quantity in [2**53, 2**53 + 1, 10**1000, 1e100]:
+            quote = engine.create_quote(QuoteRequest("micro", quantity, "agent", "n"), product)
+            self.assertEqual(quote.status, "rejected")
+        fractional = engine.create_quote(QuoteRequest("micro", 0.5, "agent", "n"), product)
+        self.assertEqual(fractional.total_price, "0.000005")
+        quote = engine.create_quote(QuoteRequest("micro", 2**53 - 1, "agent", "n"), product)
+        self.assertTrue(engine.verify_quote(quote)["valid"])
+        quote.quantity = 2**53 + 1
+        self.assertFalse(engine.verify_quote(quote)["valid"])
+
     def test_precise_challenge(self):
-        handler = X402PaymentHandler(SECRET, default_currency="XNO", default_network="nano")
+        handler = X402PaymentHandler(SECRET, default_currency="XNO", default_network="nano",
+                                     nano_payment_authorizer=lambda _: True, nano_receipt_ledger=InMemoryNanoReceiptLedger())
         self.assertEqual(handler.create_challenge(1e-7)[1]["X-402-Amount"], "0.0000001")
 
 
 class TestNanoReceipts(unittest.IsolatedAsyncioTestCase):
     async def test_send_receive_normalization_and_replay(self):
-        handler = X402PaymentHandler(SECRET, pay_to=PAYTO, nano_rpc_lookup=lookup)
+        handler = X402PaymentHandler(SECRET, pay_to=PAYTO, nano_rpc_lookup=lookup, nano_payment_authorizer=lambda _: True, nano_receipt_ledger=InMemoryNanoReceiptLedger())
         first = await handler.verify_nano_settlement(tx_hash=SEND.lower(), amount_xno="0.00001", quote_id="q1")
         second = await handler.verify_nano_settlement(tx_hash=RECEIVE, amount_xno="0.00001", quote_id="q2")
         self.assertTrue(first.verified)
@@ -101,7 +115,7 @@ class TestNanoReceipts(unittest.IsolatedAsyncioTestCase):
         self.assertFalse((await verify_nano_receipt(SEND, PAYTO, "1", outgoing))["verified"])
 
     async def test_fail_closed_handler(self):
-        handler = X402PaymentHandler(SECRET, pay_to=PAYTO, nano_rpc_lookup=lookup)
+        handler = X402PaymentHandler(SECRET, pay_to=PAYTO, nano_rpc_lookup=lookup, nano_payment_authorizer=lambda _: True, nano_receipt_ledger=InMemoryNanoReceiptLedger())
         for options in [{"currency": "USD"}, {"amount_xno": 0}, {"quote_id": ""},
                         {"tx_hash": "bad"}, {"pay_to": "0x0"}]:
             result = await handler.verify_nano_settlement(**{
@@ -125,6 +139,8 @@ class TestNanoASGI(unittest.IsolatedAsyncioTestCase):
         catalog.add_product(ProductOffer("micro", "Micro", "tiny", 0.00001, currency="XNO"))
         async def app(scope, receive, send):
             raise AssertionError("should be intercepted")
+        options.setdefault("nano_payment_authorizer", lambda _: True)
+        options.setdefault("nano_receipt_ledger", InMemoryNanoReceiptLedger())
         return UCPFastAPIMiddleware(app, manifest, catalog, SECRET, nano_rpc_lookup=lookup, **options)
 
     async def post(self, middleware, path, payload):
@@ -161,6 +177,19 @@ class TestNanoASGI(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.post(a, "checkout", {
             "quote": tampered, "paymentProof": {"txHash": "C" * 64}}))[0], 422)
 
+    async def test_fractional_raw_negotiation_returns_bad_request(self):
+        middleware = self.middleware()
+        middleware.catalog.get_product("micro").base_price = 1e-30
+        status, result = await self.post(middleware, "negotiate", {
+            "sku": "micro", "quantity": 0.5, "agentId": "agent", "clientNonce": "n"})
+        self.assertEqual(status, 400)
+        self.assertIn("finer than 1 raw", result["error"])
+        # A rejected fractional-raw quote must not break subsequent requests.
+        status, quote = await self.post(middleware, "negotiate", {
+            "sku": "micro", "quantity": 1, "agentId": "agent", "clientNonce": "n"})
+        self.assertEqual(status, 200)
+        self.assertEqual(xno_to_raw(quote["totalPrice"]), "1")
+
     async def test_missing_or_failed_payment_does_not_fulfill(self):
         middleware = self.middleware()
         _, quote = await self.post(middleware, "negotiate", {
@@ -170,3 +199,86 @@ class TestNanoASGI(unittest.IsolatedAsyncioTestCase):
         tampered = {**quote, "settlementInstructions": {**quote["settlementInstructions"], "payTo": "nano_other"}}
         self.assertEqual((await self.post(middleware, "checkout", {
             "quote": tampered, "paymentProof": {"txHash": SEND}}))[0], 422)
+
+    async def test_order_binding_denies_receipt_theft_without_burning_payment(self):
+        bindings = {}  # Trusted invoice-service records, never checkout-provided claims.
+        spent = {}
+        claims = []
+        fulfilled = []
+
+        async def authorize(payment):
+            self.assertEqual(payment["payTo"], PAYTO)
+            self.assertTrue(payment["block"]["confirmed"])
+            return bindings.get(payment["paymentId"]) == payment["quoteId"]
+
+        class SharedLedger:
+            def claim(self, payment_id, quote_id):
+                claims.append((payment_id, quote_id))
+                if payment_id in spent:
+                    return False
+                spent[payment_id] = quote_id
+                return True
+
+        async def fulfill(payment):
+            fulfilled.append(payment["quoteId"])
+            return {}
+
+        options = {"nano_payment_authorizer": authorize, "nano_receipt_ledger": SharedLedger(),
+                   "on_checkout_complete": fulfill}
+        middleware = self.middleware(**options)
+        request = {"sku": "micro", "quantity": 3, "agentId": "victim", "clientNonce": "n"}
+        _, rightful = await self.post(middleware, "negotiate", request)
+        _, attacker = await self.post(middleware, "negotiate", {
+            **request, "quantity": 1, "agentId": "attacker"})
+        bindings[SEND] = rightful["quoteId"]
+        historical = "C" * 64
+
+        async def with_history(block_hash):
+            return {**await lookup(SEND), "hash": block_hash} if block_hash == historical else await lookup(block_hash)
+
+        middleware.payment_handler.nano_rpc_lookup = with_history
+        for block_hash in [SEND.lower(), RECEIVE, historical]:
+            status, _ = await self.post(middleware, "checkout", {
+                "quote": attacker, "paymentProof": {"txHash": block_hash}})
+            self.assertEqual(status, 402)
+        self.assertEqual(claims, [])
+        self.assertEqual(fulfilled, [])
+        first, second = await asyncio.gather(*[
+            self.post(middleware, "checkout", {"quote": rightful, "paymentProof": {"txHash": block_hash}})
+            for block_hash in [SEND.lower(), RECEIVE]])
+        self.assertEqual(sorted([first[0], second[0]]), [200, 402])
+        self.assertEqual(fulfilled, [rightful["quoteId"]])
+        restarted = self.middleware(**options)
+        self.assertEqual((await self.post(restarted, "checkout", {
+            "quote": rightful, "paymentProof": {"txHash": SEND}}))[0], 402)
+        self.assertEqual(spent[SEND], rightful["quoteId"])
+
+    async def test_missing_denied_or_failed_authorization_does_not_claim(self):
+        async def broken(_):
+            raise RuntimeError("invoice service offline")
+
+        for authorizer in [lambda _: False, lambda _: "true", broken]:
+            claims = []
+
+            class Ledger:
+                def claim(self, payment_id, quote_id):
+                    claims.append(payment_id)
+                    return True
+
+            middleware = self.middleware(nano_payment_authorizer=authorizer, nano_receipt_ledger=Ledger())
+            _, quote = await self.post(middleware, "negotiate", {
+                "sku": "micro", "quantity": 1, "agentId": "agent", "clientNonce": "n"})
+            self.assertEqual((await self.post(middleware, "checkout", {
+                "quote": quote, "paymentProof": {"txHash": SEND}}))[0], 402)
+            self.assertEqual(claims, [])
+
+    async def test_missing_dependencies_prevent_payable_instructions(self):
+        for options in [{"nano_payment_authorizer": None}, {"nano_receipt_ledger": None}]:
+            with self.assertRaisesRegex(ValueError, "Nano requires"):
+                self.middleware(**options)
+        handler = X402PaymentHandler(SECRET, pay_to=PAYTO, nano_rpc_lookup=lookup)
+        handler.create_challenge(1)
+        with self.assertRaisesRegex(ValueError, "Nano requires"):
+            handler.create_challenge(1, network="nano")
+        self.assertFalse((await handler.verify_nano_settlement(
+            tx_hash=SEND, amount_xno=1, quote_id="q")).verified)
