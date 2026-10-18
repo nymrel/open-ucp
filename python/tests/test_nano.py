@@ -37,7 +37,7 @@ class TestNano(unittest.TestCase):
 
     def test_shared_quote_fixtures(self):
         fixture = Path(__file__).resolve().parents[2] / "test/fixtures/nano-quotes.json"
-        data = json.loads(fixture.read_text())
+        data = json.loads(fixture.read_text(encoding="utf-8"))
         engine = NegotiationEngine(secret_key=data["secret"])
         for case in data["cases"]:
             quote = SignedQuote.from_dict(case["quote"])
