@@ -41,6 +41,8 @@ class X402PaymentHandler:
         self.challenge_ttl_seconds = challenge_ttl_seconds
         if self.default_network == "nano":
             self._require_nano_configuration()
+            if not (self.pay_to or "").startswith("nano_"):
+                raise ValueError("Nano requires a nano_ pay-to address")
 
     def _require_nano_configuration(self):
         if not callable(self.nano_payment_authorizer) or not callable(getattr(self.nano_receipt_ledger, "claim", None)):
@@ -62,7 +64,7 @@ class X402PaymentHandler:
         target_net = network or self.default_network
         if target_net == "nano":
             self._require_nano_configuration()
-            if target_curr != "XNO" or not target_pay_to.startswith("nano_"):
+            if target_curr != "XNO" or not target_pay_to.startswith("nano_") or int(xno_to_raw(amount)) <= 0:
                 raise ValueError("Nano challenges require XNO and a nano_ pay-to address")
         ttl = ttl_seconds or self.challenge_ttl_seconds
         expires_at = (datetime.now(timezone.utc) + timedelta(seconds=ttl)).isoformat()

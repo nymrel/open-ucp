@@ -240,8 +240,8 @@ test('Nano rejects a non-XNO catalog quote before exposing payable instructions'
   assert.equal(result.body.settlementInstructions.payTo, undefined);
   assert.equal(result.body.settlementInstructions.network, undefined);
   const engine = new NegotiationEngine({ secretKey: SECRET, payTo: PAYTO, network: 'nano' });
-  for (const invalid of [{ ...product, stockStatus: 'out_of_stock' }, product]) {
-    const quote = engine.createQuote(request(-1), invalid);
+  for (const invalid of [{ ...product, stockStatus: 'out_of_stock' }, product, { ...product, basePrice: 0 }]) {
+    const quote = engine.createQuote(request(invalid.basePrice === 0 ? 1 : -1), invalid);
     assert.equal(quote.status, 'rejected');
     assert.equal(quote.settlementInstructions.payTo, undefined);
     assert.equal(quote.settlementInstructions.network, undefined);
@@ -252,5 +252,10 @@ test('Nano challenges reject unsupported currency or destination before payment'
   const handler = new X402PaymentHandler({ secretKey: SECRET, payTo: PAYTO,
     nanoPaymentAuthorizer: () => true, nanoReceiptLedger: new InMemoryNanoReceiptLedger() });
   assert.throws(() => handler.createChallenge({ amount: 1, network: 'nano', currency: 'USD' }), /require XNO/);
+  assert.throws(() => handler.createChallenge({ amount: 0, network: 'nano', currency: 'XNO' }), /require XNO/);
+  const engine = new NegotiationEngine({ secretKey: SECRET, network: 'nano', payTo: '0x0' });
+  const quote = engine.createQuote(request(), product);
+  assert.equal(quote.status, 'rejected');
+  assert.equal(quote.settlementInstructions.payTo, undefined);
   assert.throws(() => handler.createChallenge({ amount: 1, network: 'nano', currency: 'XNO', payTo: '0x0' }), /nano_/);
 });

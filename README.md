@@ -473,7 +473,8 @@ Node/Python adapter construction fails if either dependency is absent, before
 issuing payable quotes. Low-level Nano challenges also reject missing dependencies,
 including a per-call `network: 'nano'` override. Nano quotes for non-XNO catalog
 products are rejected without payable destination instructions; Nano challenges
-also require XNO and a `nano_` destination. The standalone `NegotiationEngine`
+also require positive XNO amounts and a `nano_` destination. Zero-total quotes
+and invalid Nano destinations are rejected before payment as well. The standalone `NegotiationEngine`
 is only a pricing/signing primitive; a signed quote alone does not configure or
 certify payment capability. Use the guarded checkout adapter for payable routes:
 

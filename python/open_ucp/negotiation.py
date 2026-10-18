@@ -55,6 +55,8 @@ class NegotiationEngine:
         if isinstance(request.quantity, bool) or request.quantity <= 0 or request.quantity > 2**53 - 1 or not math.isfinite(request.quantity):
             return self._generate_rejected_quote(request, product, "Invalid quantity requested")
 
+        if self.network == "nano" and not (self.pay_to or "").startswith("nano_"):
+            return self._generate_rejected_quote(request, product, "Nano settlement requires a nano_ pay-to address")
         if self.network == "nano" and product.currency.upper() != "XNO":
             return self._generate_rejected_quote(request, product, "Nano settlement requires prices quoted in XNO")
 
@@ -123,6 +125,8 @@ class NegotiationEngine:
 
         if is_xno:
             total_raw = xno_total(effective_unit_price, request.quantity)
+            if self.network == "nano" and total_raw <= 0:
+                return self._generate_rejected_quote(request, product, "Nano settlement amount must be above zero")
             total_price = raw_to_xno(total_raw)
             savings = raw_to_xno(xno_total(base_price, request.quantity) - total_raw)
         else:

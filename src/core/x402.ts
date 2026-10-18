@@ -89,7 +89,10 @@ export class X402PaymentHandler {
     this.nanoRpcLookup = options.nanoRpcLookup || defaultNanoRpcLookup;
     this.nanoPaymentAuthorizer = options.nanoPaymentAuthorizer;
     this.nanoReceiptLedger = options.nanoReceiptLedger;
-    if (this.defaultNetwork === 'nano') this.requireNanoConfiguration();
+    if (this.defaultNetwork === 'nano') {
+      this.requireNanoConfiguration();
+      if (!this.payTo.startsWith('nano_')) throw new Error('Nano requires a nano_ pay-to address');
+    }
   }
 
   private requireNanoConfiguration(): void {
@@ -117,7 +120,7 @@ export class X402PaymentHandler {
     const network = options.network || this.defaultNetwork;
     if (network === 'nano') {
       this.requireNanoConfiguration();
-      if (currency !== 'XNO' || !payTo.startsWith('nano_')) {
+      if (currency !== 'XNO' || !payTo.startsWith('nano_') || BigInt(xnoToRaw(options.amount)) <= 0n) {
         throw new Error('Nano challenges require XNO and a nano_ pay-to address');
       }
     }

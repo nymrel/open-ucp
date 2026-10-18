@@ -301,6 +301,17 @@ class TestNanoASGI(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(quote.status, "rejected")
             self.assertNotIn("payTo", quote.settlement_instructions)
             self.assertNotIn("network", quote.settlement_instructions)
+        product.stock_status = "unlimited"
+        product.base_price = 0
+        quote = middleware.negotiation_engine.create_quote(QuoteRequest("micro", 1, "agent", "n"), product)
+        self.assertEqual(quote.status, "rejected")
+        self.assertNotIn("payTo", quote.settlement_instructions)
+        middleware.negotiation_engine.pay_to = "0x0"
+        quote = middleware.negotiation_engine.create_quote(QuoteRequest("micro", 1, "agent", "n"), product)
+        self.assertEqual(quote.status, "rejected")
+        self.assertNotIn("payTo", quote.settlement_instructions)
+        with self.assertRaisesRegex(ValueError, "Nano challenges require"):
+            middleware.payment_handler.create_challenge(0, currency="XNO", network="nano")
         for options in [{"currency": "USD"}, {"currency": "XNO", "pay_to": "0x0"}]:
             with self.assertRaisesRegex(ValueError, "Nano challenges require"):
                 middleware.payment_handler.create_challenge(1, network="nano", **options)

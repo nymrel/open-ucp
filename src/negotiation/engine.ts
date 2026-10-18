@@ -54,6 +54,9 @@ export class NegotiationEngine {
       );
     }
 
+    if (this.network === 'nano' && !this.payTo?.startsWith('nano_')) {
+      return this.generateRejectedQuote(request, product, 'Nano settlement requires a nano_ pay-to address');
+    }
     if (this.network === 'nano' && product.currency.toUpperCase() !== 'XNO') {
       return this.generateRejectedQuote(request, product, 'Nano settlement requires prices quoted in XNO');
     }
@@ -127,6 +130,9 @@ export class NegotiationEngine {
     }
 
     const totalRaw = isXno ? xnoTotal(effectiveUnitPrice, request.quantity) : 0n;
+    if (this.network === 'nano' && totalRaw <= 0n) {
+      return this.generateRejectedQuote(request, product, 'Nano settlement amount must be above zero');
+    }
     const baseRaw = isXno ? xnoTotal(basePrice, request.quantity) : 0n;
     const totalPrice = isXno ? rawToXno(totalRaw)
       : Number((effectiveUnitPrice * request.quantity).toFixed(2));
