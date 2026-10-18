@@ -38,18 +38,22 @@ class UCPFastAPIMiddleware:
         self.catalog = catalog
         self.secret_key = secret_key
         self.on_checkout_complete = on_checkout_complete
+        # Snapshot the merchant rail; request fields never select its verifier.
+        rail = manifest.get("paymentRails", {}).get("x402", {})
+        self.configured_network = rail.get("defaultNetwork") or "polygon"
+        self.configured_pay_to = rail.get("payTo") or "0x0000000000000000000000000000000000000000"
 
         self.negotiation_engine = NegotiationEngine(
             secret_key=secret_key,
             default_ttl_seconds=manifest.get("security", {}).get("quoteTtlSeconds", 300),
-            pay_to=manifest.get("paymentRails", {}).get("x402", {}).get("payTo"),
-            network=manifest.get("paymentRails", {}).get("x402", {}).get("defaultNetwork")
+            pay_to=self.configured_pay_to,
+            network=self.configured_network
         )
 
         self.payment_handler = X402PaymentHandler(
             secret_key=secret_key,
-            pay_to=manifest.get("paymentRails", {}).get("x402", {}).get("payTo", "0x0"),
-            default_network=manifest.get("paymentRails", {}).get("x402", {}).get("defaultNetwork", "polygon"),
+            pay_to=self.configured_pay_to,
+            default_network=self.configured_network,
             default_currency=manifest.get("catalogSummary", {}).get("currency", "USD"),
             nano_rpc_lookup=nano_rpc_lookup,
             nano_receipt_ledger=nano_receipt_ledger,
@@ -133,19 +137,19 @@ class UCPFastAPIMiddleware:
                 await self._send_json(send, 422, {"error": verification.get("reason")})
                 return
 
-            if quote.settlement_instructions.get("network") == "nano":
-                configured_pay_to = self.manifest.get("paymentRails", {}).get("x402", {}).get("payTo")
-                quoted_pay_to = quote.settlement_instructions.get("payTo")
-                if configured_pay_to and quoted_pay_to and configured_pay_to != quoted_pay_to:
-                    await self._send_json(send, 422, {"error": "Quote pay-to does not match this merchant"})
-                    return
-                tx_hash = payment_proof.get("txHash") if isinstance(payment_proof, dict) else None
-                if not tx_hash:
-                    await self._send_json(send, 402, {"error": "A nano settlement requires a txHash (block hash)"})
-                    return
+            settlement = quote.settlement_instructions
+            if (not isinstance(settlement, dict)
+                    or settlement.get("protocol") != "x402"
+                    or settlement.get("network") != self.configured_network
+                    or settlement.get("payTo") != self.configured_pay_to):
+                await self._send_json(send, 422, {"error": "Quote settlement does not match this merchant"})
+                return
+
+            if self.configured_network == "nano":
+                tx_hash = payment_proof.get("txHash", "") if isinstance(payment_proof, dict) else ""
                 payment_verify = await self.payment_handler.verify_nano_settlement(
                     tx_hash=tx_hash, amount_xno=quote.total_price, quote_id=quote.quote_id,
-                    currency=quote.currency, pay_to=configured_pay_to
+                    currency=quote.currency, pay_to=self.configured_pay_to
                 )
             else:
                 payment_verify = self.payment_handler.verify_payment(payment_proof)

@@ -259,3 +259,60 @@ test('Nano challenges reject unsupported currency or destination before payment'
   assert.equal(quote.settlementInstructions.payTo, undefined);
   assert.throws(() => handler.createChallenge({ amount: 1, network: 'nano', currency: 'XNO', payTo: '0x0' }), /nano_/);
 });
+
+test('server settlement configuration rejects valid signed quotes from another rail or merchant', async t => {
+  let fulfilled = 0;
+  let lookups = 0;
+  let authorizations = 0;
+  let claims = 0;
+  const http = await server(t, config({
+    nanoRpcLookup: async hash => { lookups++; return lookup(hash); },
+    nanoPaymentAuthorizer() { authorizations++; return true; },
+    nanoReceiptLedger: { claim() { claims++; return true; } },
+    onCheckoutComplete() { fulfilled++; return {}; },
+  }));
+  const tokenHandler = new X402PaymentHandler({ secretKey: SECRET });
+  for (const options of [
+    { network: 'polygon', payTo: PAYTO },
+    { payTo: PAYTO },
+    { network: 'nano', payTo: PAYTO, defaultProtocol: 'ap2' },
+    { network: 'nano', payTo: 'nano_other_merchant' },
+  ]) {
+    const issuer = new NegotiationEngine({ secretKey: SECRET, ...options });
+    const quote = issuer.createQuote(request(), product);
+    assert.equal(issuer.verifyQuote(quote).valid, true);
+    const token = tokenHandler.createPaymentProofToken({ quoteId: quote.quoteId,
+      amount: Number(quote.totalPrice), currency: 'XNO', payerId: 'agent' });
+    assert.equal((await http('checkout', { quote, paymentProof: token })).status, 422);
+  }
+  assert.deepEqual([fulfilled, lookups, authorizations, claims], [0, 0, 0, 0]);
+  const quote = (await http('negotiate', request())).body;
+  // Missing hash or an HMAC token cannot fall through to the HMAC verifier.
+  for (const proof of [{ token: 'wrong-rail' }, { txHash: '' }, { txHash: false }]) {
+    assert.equal((await http('checkout', { quote, paymentProof: proof })).status, 402);
+  }
+  assert.deepEqual([fulfilled, lookups, authorizations, claims], [0, 0, 0, 0]);
+  assert.equal((await http('checkout', checkout(quote))).status, 200);
+  assert.deepEqual([fulfilled, lookups, authorizations, claims], [1, 1, 1, 1]);
+});
+
+test('server-configured HMAC checkout remains available for its own signed quote', async t => {
+  const manifest = createDefaultManifest({ payTo: '0xmerchant' });
+  const http = await server(t, config({ manifest,
+    catalog: new ProductCatalog([{ ...product, currency: 'USD', basePrice: 2 }]),
+    nanoPaymentAuthorizer: undefined, nanoReceiptLedger: undefined }));
+  const quote = (await http('negotiate', request(1))).body;
+  const handler = new X402PaymentHandler({ secretKey: SECRET });
+  const token = handler.createPaymentProofToken({ quoteId: quote.quoteId,
+    amount: quote.totalPrice, currency: quote.currency, payerId: 'agent' });
+  assert.equal((await http('checkout', { quote, paymentProof: token })).status, 200);
+});
+
+test('canonical raw formatting handles giant integer parts and trims only the bounded fraction', () => {
+  const whole = '1' + '0'.repeat(100000);
+  assert.equal(rawToXno(BigInt(whole + '0'.repeat(30))), whole);
+  const raw = BigInt(whole + '12345' + '0'.repeat(25));
+  assert.equal(rawToXno(raw), whole + '.12345');
+  assert.equal(rawToXno(-raw), '-' + whole + '.12345');
+  assert.throws(() => xnoToRaw(whole), /literal is too long/);
+});

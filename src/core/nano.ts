@@ -176,7 +176,11 @@ export function xnoToRaw(amountXno: number | string): string {
 export function rawToXno(raw: bigint): string {
   const sign = raw < 0n ? '-' : '';
   const digits = (raw < 0n ? -raw : raw).toString().padStart(31, '0');
-  const fraction = digits.slice(-30).replace(/0+$/, '');
+  const fractionStart = digits.length - RAW_DECIMALS;
+  let fractionEnd = digits.length;
+  // Inspect at most the 30 raw-unit fractional digits, with no regex backtracking.
+  while (fractionEnd > fractionStart && digits[fractionEnd - 1] === '0') fractionEnd--;
+  const fraction = digits.slice(fractionStart, fractionEnd);
   return sign + digits.slice(0, -30) + (fraction ? '.' + fraction : '');
 }
 

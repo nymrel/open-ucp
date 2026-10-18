@@ -315,3 +315,64 @@ class TestNanoASGI(unittest.IsolatedAsyncioTestCase):
         for options in [{"currency": "USD"}, {"currency": "XNO", "pay_to": "0x0"}]:
             with self.assertRaisesRegex(ValueError, "Nano challenges require"):
                 middleware.payment_handler.create_challenge(1, network="nano", **options)
+
+    async def test_server_configuration_owns_the_settlement_route(self):
+        calls = []
+
+        class Ledger:
+            def claim(self, payment_id, quote_id):
+                calls.append("claim")
+                return True
+
+        async def authorize(_):
+            calls.append("authorize")
+            return True
+
+        async def fulfill(_):
+            calls.append("fulfill")
+            return {}
+
+        middleware = self.middleware(nano_payment_authorizer=authorize,
+                                     nano_receipt_ledger=Ledger(), on_checkout_complete=fulfill)
+        async def tracked_lookup(block_hash):
+            calls.append("lookup")
+            return await lookup(block_hash)
+        middleware.payment_handler.nano_rpc_lookup = tracked_lookup
+        request = QuoteRequest("micro", 3, "agent", "n")
+        product = middleware.catalog.get_product("micro")
+        for options in [
+            {"network": "polygon", "pay_to": PAYTO}, {"pay_to": PAYTO},
+            {"network": "nano", "pay_to": PAYTO, "default_protocol": "ap2"},
+            {"network": "nano", "pay_to": "nano_other_merchant"},
+        ]:
+            issuer = NegotiationEngine(secret_key=SECRET, **options)
+            quote = issuer.create_quote(request, product)
+            self.assertTrue(issuer.verify_quote(quote)["valid"])
+            token = middleware.payment_handler.create_payment_proof_token(
+                quote.quote_id, float(quote.total_price), quote.currency, "agent")
+            self.assertEqual((await self.post(middleware, "checkout", {
+                "quote": quote.to_dict(), "paymentProof": token}))[0], 422)
+        self.assertEqual(calls, [])
+        quote = middleware.negotiation_engine.create_quote(request, product).to_dict()
+        for proof in [{"token": "wrong-rail"}, {"txHash": ""}, {"txHash": False}]:
+            self.assertEqual((await self.post(middleware, "checkout", {
+                "quote": quote, "paymentProof": proof}))[0], 402)
+        self.assertEqual(calls, [])
+        self.assertEqual((await self.post(middleware, "checkout", {
+            "quote": quote, "paymentProof": {"txHash": SEND}}))[0], 200)
+        self.assertEqual(calls, ["lookup", "authorize", "claim", "fulfill"])
+
+    async def test_server_configured_hmac_checkout_remains_available(self):
+        manifest = create_default_manifest()
+        manifest["paymentRails"]["x402"].update({"payTo": "0xmerchant", "defaultNetwork": "polygon"})
+        catalog = ProductCatalog()
+        catalog.add_product(ProductOffer("micro", "Micro", "fixed", 2, currency="USD"))
+        async def app(scope, receive, send):
+            raise AssertionError("should be intercepted")
+        middleware = UCPFastAPIMiddleware(app, manifest, catalog, SECRET)
+        _, quote = await self.post(middleware, "negotiate", {
+            "sku": "micro", "quantity": 1, "agentId": "agent", "clientNonce": "n"})
+        token = middleware.payment_handler.create_payment_proof_token(
+            quote["quoteId"], quote["totalPrice"], quote["currency"], "agent")
+        self.assertEqual((await self.post(middleware, "checkout", {
+            "quote": quote, "paymentProof": token}))[0], 200)

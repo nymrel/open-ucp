@@ -33,19 +33,20 @@ export interface UCPServerConfig {
 export type ExpressNextFunction = (err?: unknown) => void;
 
 export function ucpExpressMiddleware(config: UCPServerConfig) {
+  // Snapshot the merchant's rail. A request can never select its payment verifier.
+  const configuredNetwork = config.manifest.paymentRails?.x402?.defaultNetwork || 'polygon';
+  const configuredPayTo = config.manifest.paymentRails?.x402?.payTo || '0x0000000000000000000000000000000000000000';
   const negotiationEngine = new NegotiationEngine({
     secretKey: config.secretKey,
     defaultTtlSeconds: config.manifest.security?.quoteTtlSeconds || 300,
-    payTo: config.manifest.paymentRails?.x402?.payTo,
-    network: config.manifest.paymentRails?.x402?.defaultNetwork
+    payTo: configuredPayTo,
+    network: configuredNetwork
   });
-
-  const configuredPayTo = config.manifest.paymentRails?.x402?.payTo;
 
   const paymentHandler = new X402PaymentHandler({
     secretKey: config.secretKey,
     payTo: configuredPayTo,
-    defaultNetwork: config.manifest.paymentRails?.x402?.defaultNetwork,
+    defaultNetwork: configuredNetwork,
     defaultCurrency: config.manifest.catalogSummary?.currency || 'USD',
     nanoReceiptLedger: config.nanoReceiptLedger,
     nanoRpcLookup: config.nanoRpcLookup,
@@ -146,35 +147,26 @@ export function ucpExpressMiddleware(config: UCPServerConfig) {
           return;
         }
 
-        // Verify payment. For the Nano rail the receipt is a public block a
-        // stranger can re-read, so we verify settlement on-chain rather than
-        // trusting a self-signed proof token.
-        const settleNet = body.quote?.settlementInstructions?.network;
+        // A valid signature can come from another endpoint sharing this key.
+        // Require this merchant's configured settlement before selecting its verifier.
+        const settlement = body.quote.settlementInstructions;
+        if (settlement?.protocol !== 'x402' || settlement?.network !== configuredNetwork
+          || settlement?.payTo !== configuredPayTo) {
+          res.statusCode = 422;
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          res.end(JSON.stringify({ error: 'Quote settlement does not match this merchant' }));
+          return;
+        }
+
+        // Nano always verifies chain evidence plus trusted order authorization;
+        // neither a request-supplied rail nor a missing txHash can select HMAC.
         const proof: PaymentProof = typeof body.paymentProof === 'string'
           ? { protocol: 'x402', token: body.paymentProof, timestamp: new Date().toISOString() }
           : (body.paymentProof as PaymentProof);
         let paymentVerify;
-        if (settleNet === 'nano') {
-          const txHash = proof?.txHash;
-          if (!txHash) {
-            res.statusCode = 402;
-            res.setHeader('Content-Type', 'application/json; charset=utf-8');
-            res.end(JSON.stringify({ error: 'A nano settlement requires a txHash (block hash)' }));
-            return;
-          }
-          // The quote's settlement instructions are inside the signed payload, so
-          // they arrive authenticated. Check them against our own configuration
-          // anyway: the address the money goes to is never worth trusting to one
-          // layer, and a mismatch means the quote was not issued for this shop.
-          const quotedPayTo = body.quote?.settlementInstructions?.payTo;
-          if (configuredPayTo && quotedPayTo && quotedPayTo !== configuredPayTo) {
-            res.statusCode = 422;
-            res.setHeader('Content-Type', 'application/json; charset=utf-8');
-            res.end(JSON.stringify({ error: 'Quote pay-to does not match this merchant' }));
-            return;
-          }
+        if (configuredNetwork === 'nano') {
           paymentVerify = await paymentHandler.verifyNanoSettlement({
-            txHash,
+            txHash: proof?.txHash ?? '',
             amountXno: body.quote.totalPrice,
             quoteId: body.quote.quoteId,
             currency: body.quote.currency,
