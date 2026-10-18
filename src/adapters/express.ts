@@ -9,17 +9,22 @@ import { IncomingMessage, ServerResponse } from 'node:http';
 import { UCPManifest, QuoteRequest, PaymentProof } from '../core/types.js';
 import { ProductCatalog } from '../core/catalog.js';
 import { NegotiationEngine } from '../negotiation/engine.js';
-import { X402PaymentHandler } from '../core/x402.js';
+import { X402PaymentHandler, NanoReceiptLedger } from '../core/x402.js';
+import { NanoRpcLookup, NanoPaymentAuthorizer } from '../core/nano.js';
 
 export interface UCPServerConfig {
   manifest: UCPManifest;
   catalog: ProductCatalog;
   secretKey: string;
+  /** Use a durable atomic store shared by every worker and retained across restarts. */
+  nanoReceiptLedger?: NanoReceiptLedger;
+  nanoRpcLookup?: NanoRpcLookup;
+  nanoPaymentAuthorizer?: NanoPaymentAuthorizer;
   onCheckoutComplete?: (data: {
     quoteId: string;
     sku: string;
     quantity: number;
-    amount: number;
+    amount: number | string;
     receiptId: string;
     payerId: string;
   }) => Promise<Record<string, unknown>> | Record<string, unknown>;
@@ -28,18 +33,24 @@ export interface UCPServerConfig {
 export type ExpressNextFunction = (err?: unknown) => void;
 
 export function ucpExpressMiddleware(config: UCPServerConfig) {
+  // Snapshot the merchant's rail. A request can never select its payment verifier.
+  const configuredNetwork = config.manifest.paymentRails?.x402?.defaultNetwork || 'polygon';
+  const configuredPayTo = config.manifest.paymentRails?.x402?.payTo || '0x0000000000000000000000000000000000000000';
   const negotiationEngine = new NegotiationEngine({
     secretKey: config.secretKey,
     defaultTtlSeconds: config.manifest.security?.quoteTtlSeconds || 300,
-    payTo: config.manifest.paymentRails?.x402?.payTo,
-    network: config.manifest.paymentRails?.x402?.defaultNetwork
+    payTo: configuredPayTo,
+    network: configuredNetwork
   });
 
   const paymentHandler = new X402PaymentHandler({
     secretKey: config.secretKey,
-    payTo: config.manifest.paymentRails?.x402?.payTo,
-    defaultNetwork: config.manifest.paymentRails?.x402?.defaultNetwork,
-    defaultCurrency: config.manifest.catalogSummary?.currency || 'USD'
+    payTo: configuredPayTo,
+    defaultNetwork: configuredNetwork,
+    defaultCurrency: config.manifest.catalogSummary?.currency || 'USD',
+    nanoReceiptLedger: config.nanoReceiptLedger,
+    nanoRpcLookup: config.nanoRpcLookup,
+    nanoPaymentAuthorizer: config.nanoPaymentAuthorizer
   });
 
   return async (req: IncomingMessage & { body?: any; url?: string; method?: string }, res: ServerResponse, next?: ExpressNextFunction) => {
@@ -120,30 +131,40 @@ export function ucpExpressMiddleware(config: UCPServerConfig) {
           paymentProof: PaymentProof | string;
         }>(req);
 
-        if (!body.quote || !body.paymentProof) {
-          res.statusCode = 400;
-          res.setHeader('Content-Type', 'application/json; charset=utf-8');
-          res.end(JSON.stringify({ error: 'Missing required fields: quote, paymentProof' }));
-          return;
-        }
+        if (!body || typeof body !== 'object' || !body.quote || !body.paymentProof)
+          return sendJsonError(res, 400, 'Missing required fields: quote, paymentProof');
 
         // Verify quote
         const quoteVerify = negotiationEngine.verifyQuote(body.quote);
-        if (!quoteVerify.valid) {
-          res.statusCode = 422;
-          res.setHeader('Content-Type', 'application/json; charset=utf-8');
-          res.end(JSON.stringify({ error: quoteVerify.reason || 'Invalid or expired quote' }));
-          return;
-        }
+        if (!quoteVerify.valid)
+          return sendJsonError(res, 422, quoteVerify.reason || 'Invalid or expired quote');
 
-        // Verify payment
-        const paymentVerify = paymentHandler.verifyPayment(body.paymentProof);
-        if (!paymentVerify.verified) {
-          res.statusCode = 402;
-          res.setHeader('Content-Type', 'application/json; charset=utf-8');
-          res.end(JSON.stringify({ error: paymentVerify.error || 'Payment proof verification failed' }));
-          return;
+        // A valid signature can come from another endpoint sharing this key.
+        // Require this merchant's configured settlement before selecting its verifier.
+        const settlement = body.quote.settlementInstructions;
+        if (settlement?.protocol !== 'x402' || settlement?.network !== configuredNetwork
+          || settlement?.payTo !== configuredPayTo)
+          return sendJsonError(res, 422, 'Quote settlement does not match this merchant');
+
+        // Nano always verifies chain evidence plus trusted order authorization;
+        // neither a request-supplied rail nor a missing txHash can select HMAC.
+        const proof: PaymentProof = typeof body.paymentProof === 'string'
+          ? { protocol: 'x402', token: body.paymentProof, timestamp: new Date().toISOString() }
+          : (body.paymentProof as PaymentProof);
+        let paymentVerify;
+        if (configuredNetwork === 'nano') {
+          paymentVerify = await paymentHandler.verifyNanoSettlement({
+            txHash: proof?.txHash ?? '',
+            amountXno: body.quote.totalPrice,
+            quoteId: body.quote.quoteId,
+            currency: body.quote.currency,
+            payTo: configuredPayTo,
+          });
+        } else {
+          paymentVerify = paymentHandler.verifyPayment(proof);
         }
+        if (!paymentVerify.verified)
+          return sendJsonError(res, 402, paymentVerify.error || 'Payment proof verification failed');
 
         let fulfillResult: Record<string, unknown> = {};
         if (config.onCheckoutComplete) {
@@ -237,6 +258,12 @@ export function requireX402(options: {
       next();
     }
   };
+}
+
+function sendJsonError(res: ServerResponse, statusCode: number, error: string): void {
+  res.statusCode = statusCode;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.end(JSON.stringify({ error }));
 }
 
 async function parseJsonBody<T>(req: IncomingMessage & { body?: any }): Promise<T> {

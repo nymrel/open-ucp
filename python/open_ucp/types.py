@@ -164,7 +164,7 @@ class ProductOffer:
 @dataclass
 class QuoteRequest:
     sku: str
-    quantity: int
+    quantity: int | float
     agent_id: str
     client_nonce: str
     target_currency: Optional[str] = None
@@ -177,12 +177,12 @@ class QuoteRequest:
 class SignedQuote:
     quote_id: str
     sku: str
-    quantity: int
+    quantity: int | float
     unit_price: float
-    total_price: float
+    total_price: float | str
     currency: str
     discount_percent: float
-    savings: float
+    savings: float | str
     agent_id: str
     client_nonce: str
     status: Literal["accepted", "counter_offer", "rejected"]
@@ -191,6 +191,20 @@ class SignedQuote:
     expires_at: str
     signature: str
     settlement_instructions: Dict[str, Any]
+
+    @classmethod
+    def from_dict(cls, value: Dict[str, Any]) -> "SignedQuote":
+        fields = {
+            "quoteId": "quote_id", "unitPrice": "unit_price", "totalPrice": "total_price",
+            "discountPercent": "discount_percent", "agentId": "agent_id",
+            "clientNonce": "client_nonce", "issuedAt": "issued_at", "expiresAt": "expires_at",
+            "settlementInstructions": "settlement_instructions"
+        }
+        return cls(**{fields.get(key, key): value[key] for key in [
+            "quoteId", "sku", "quantity", "unitPrice", "totalPrice", "currency",
+            "discountPercent", "savings", "agentId", "clientNonce", "status", "reason",
+            "issuedAt", "expiresAt", "signature", "settlementInstructions"
+        ]})
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -245,7 +259,7 @@ class X402Challenge:
 class PaymentVerificationResult:
     verified: bool
     receipt_id: Optional[str] = None
-    amount: Optional[float] = None
+    amount: Optional[float | str] = None
     currency: Optional[str] = None
     payer_id: Optional[str] = None
     error: Optional[str] = None

@@ -44,3 +44,60 @@ jobs:
 
       - name: Analyze source
         uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with:
+          output: codeql-results
+
+      - name: Summarize high-severity CodeQL findings for review
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import glob
+          import json
+          from pathlib import Path, PurePosixPath
+
+          def locations(entries, limit=100):
+              selected = []
+              for entry in entries[:limit]:
+                  physical = entry.get("location", entry).get("physicalLocation", {})
+                  uri = physical.get("artifactLocation", {}).get("uri", "")
+                  path = PurePosixPath(uri)
+                  if not uri or ":" in uri or path.is_absolute() or ".." in path.parts:
+                      continue
+                  region = physical.get("region", {})
+                  selected.append({"id": entry.get("id"), "path": uri,
+                                   "line": region.get("startLine"), "endLine": region.get("endLine")})
+              return selected
+
+          for filename in glob.glob("codeql-results/*.sarif"):
+              report = json.loads(Path(filename).read_text(encoding="utf-8"))
+              for run in report.get("runs", []):
+                  components = [run["tool"]["driver"], *run["tool"].get("extensions", [])]
+                  rules = {rule["id"]: rule for component in components for rule in component.get("rules", [])}
+                  for result in run.get("results", []):
+                      rule = rules.get(result.get("ruleId"), {})
+                      severity = rule.get("properties", {}).get("security-severity", "0")
+                      if float(severity) < 7:
+                          continue
+                      finding = {
+                          "sarif": filename,
+                          "ruleId": result.get("ruleId"),
+                          "securitySeverity": severity,
+                          "message": result.get("message", {}).get("text", "")[:4000],
+                          "locations": locations(result.get("locations", [])),
+                          "relatedLocations": locations(result.get("relatedLocations", []), 20),
+                          "codeFlows": [locations(thread.get("locations", []))
+                                        for flow in result.get("codeFlows", [])[:10]
+                                        for thread in flow.get("threadFlows", [])[:10]],
+                      }
+                      print("CODEQL_REVIEW " + json.dumps(finding, ensure_ascii=True))
+          PY
+
+      - name: Retain CodeQL findings for review
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: codeql-sarif-${{ matrix.language }}
+          path: codeql-results/*.sarif
+          if-no-files-found: warn
+          retention-days: 3

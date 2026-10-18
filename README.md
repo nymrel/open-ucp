@@ -25,7 +25,7 @@ Today's AI agents can reason, code, and browse, but when it comes to purchasing 
 ### Core Capabilities
 * 📜 **`/.well-known/ucp.json` Manifest:** Machine-readable commerce manifest exposing entity trust, capabilities, endpoints, and payment rails.
 * 🤝 **Machine Negotiation Engine (RFC-UCP-002):** Dynamic programmatic quotes, volume margin curves, and cryptographic HMAC-SHA256 tamper-proof quote signatures.
-* 💳 **X402 Payment Required Engine (RFC-X402):** Native HTTP 402 challenge-response payment protocol for USDC, Solana, Base, Lightning, and Stripe.
+* 💳 **X402 Payment Required Engine (RFC-X402):** Native HTTP 402 challenge-response payment protocol for USDC, Solana, Base, Lightning, Stripe, and Nano (XNO).
 * 🔍 **Dual-Audience Machine Trust:** Built-in JSON-LD parity verification, Schema.org product alignment, and parent organization verification (`Nymrel -> JalenBuilds LLC`).
 * 📦 **Zero Runtime Dependencies:** Native TypeScript & Python stdlib implementations with complete test suites.
 
@@ -369,6 +369,164 @@ Response — sale settled, receipt issued:
 }
 ```
 
+### Nano (XNO) settlement
+
+Open-ucp can settle a checkout on the **Nano** network. Nano is instant and
+feeless, and a payment is a public block a buyer (or any third party) can
+re-read on the ledger — so the middleware verifies the **chain state** instead of
+trusting a token the seller signed itself. The receipt is the block.
+
+Nano settlement is disabled until the merchant supplies both a trusted order-bound
+payment authorizer and an explicit receipt ledger. A bare public block hash proves neither payer identity nor
+which order the payment was intended to settle. Before checkout, independently
+register the payment-to-invoice binding through an authenticated payer process
+or a merchant-controlled unique invoice destination. Never let an anonymous
+checkout register its own hash-to-order binding or accept whichever quote arrives
+first: a stranger could steal a buyer's public receipt or spend historical deposits.
+
+Configure the handler with that authorizer and a `nano_` pay-to address, then pass
+the block hash in the payment proof's `txHash`:
+
+```javascript
+import { X402PaymentHandler } from '@nymrel/open-ucp';
+
+const pay = new X402PaymentHandler({
+  secretKey: process.env.UCP_SECRET_KEY,
+  payTo: 'nano_1...',            // merchant's Nano account
+  defaultNetwork: 'nano',
+  defaultCurrency: 'XNO',
+  nanoPaymentAuthorizer: authorizeInvoicePayment, // merchant-owned trusted binding check
+  nanoReceiptLedger: durableAtomicLedger
+});
+```
+
+```bash
+curl -X POST http://localhost:4020/api/ucp/checkout \
+  -H "Content-Type: application/json" \
+  -d '{
+    "quote": <paste the full quote JSON>,
+    "paymentProof": {
+      "protocol": "x402",
+      "txHash": "<hash of the block that credits the merchant>",
+      "timestamp": "2026-09-28T00:00:00.000Z"
+    }
+  }'
+```
+
+The middleware performs an on-chain `block_info` lookup and only fulfils the
+order when the block exists, the node reports it **confirmed**, it **credits** the
+configured pay-to account, it carries at least the quoted amount (converted to
+raw, 1 XNO = 10^30 raw), the merchant's authorizer confirms its independently
+registered binding to this quote, and it has not already settled another order.
+Unreadable, unconfirmed, mismatched, unauthorized, or already-spent blocks fail
+closed. Missing, false, non-boolean, or throwing authorization rejects checkout
+before any spent-ledger claim, leaving a rightful buyer's payment available.
+`nanoPaymentAuthorizer` receives `{ paymentId, quoteId, payTo, amountRaw, block }`;
+`paymentId` is the normalized send hash and `amountRaw` is the required amount.
+Return exactly `true` only when the trusted invoice record authorizes that payment
+for that quote. The callback does not replace the permanent replay ledger below.
+
+"Credits the pay-to account" is two different fields on Nano, and they are not
+interchangeable:
+
+| block subtype | the payee is | accepted when |
+| --- | --- | --- |
+| `receive` / `open` | the block's own account | `block_account` == pay-to |
+| `send` | the destination | `link_as_account` == pay-to |
+
+On a **send**, `block_account` is the *payer*. Matching the pay-to against it
+would accept the merchant's own outgoing sends — which are public — as proof that
+a stranger had paid, while rejecting the buyer's genuine send.
+
+**One payment settles one order.** A block hash is public and permanent, so the
+handler keeps a ledger of spent payments; without it a single genuine receive
+confirms every later order at or below its amount. A payment is two blocks - the
+payer's send and the merchant's receive that pockets it - so the ledger is keyed
+on the send's hash (for a receive, its `link`/`source`), and presenting the same
+payment once as its send and once as its receive settles one order, not two.
+There is no implicit Nano receipt ledger. For development/tests, explicitly choose
+`InMemoryNanoReceiptLedger`; it loses its history on restart. Production merchants
+must provide a **durable**, shared, atomically-claiming store via
+`nanoReceiptLedger`, including a single worker that may restart. Retain spent
+payment IDs permanently: quote expiration does not make a public block reusable.
+A unique-index insert must return false on duplicate and fail closed if storage
+is unavailable; do not implement a separate read-then-write or expire the entries.
+
+```javascript
+const pay = new X402PaymentHandler({
+  secretKey: process.env.UCP_SECRET_KEY,
+  payTo: 'nano_1...',
+  defaultNetwork: 'nano',
+  defaultCurrency: 'XNO',
+  // Read a binding independently registered by the authenticated invoice service.
+  nanoPaymentAuthorizer: ({ paymentId, quoteId }) =>
+    invoices.isPaymentAuthorized(paymentId, quoteId),
+  nanoReceiptLedger: {
+    // must be ONE atomic operation, e.g. a unique-index insert
+    claim: (paymentId, quoteId) => db.insertIfAbsent(paymentId, quoteId)
+  }
+});
+```
+
+The Express/Fastify checkout adapter accepts the same typed options. Nano-enabled
+Node/Python adapter construction fails if either dependency is absent, before
+issuing payable quotes. Low-level Nano challenges also reject missing dependencies,
+including a per-call `network: 'nano'` override. Nano quotes for non-XNO catalog
+products are rejected without payable destination instructions; Nano challenges
+also require positive XNO amounts and a `nano_` destination. Zero-total quotes
+and invalid Nano destinations are rejected before payment as well. The standalone `NegotiationEngine`
+is only a pricing/signing primitive; a signed quote alone does not configure or
+certify payment capability. Use the guarded checkout adapter for payable routes:
+
+
+```javascript
+const middleware = ucpExpressMiddleware({
+  manifest, catalog, secretKey: process.env.UCP_SECRET_KEY,
+  nanoReceiptLedger: durableAtomicLedger,
+  nanoPaymentAuthorizer: authorizeInvoicePayment,
+  nanoRpcLookup: trustedNodeLookup // optional: otherwise NANO_RPC_URL/public node
+});
+```
+
+Python exposes `nano_receipt_ledger`, `nano_rpc_lookup`, and
+`nano_payment_authorizer` on both
+`X402PaymentHandler` and `UCPFastAPIMiddleware`. Its ledger's `claim(payment_id,
+quote_id)` may return a boolean or awaitable boolean and has the same atomicity
+and durability requirements. The required authorizer receives a dictionary with
+the same camelCase keys as Node and may return a boolean or awaitable boolean;
+only `True` authorizes settlement. It has the same trusted invoice-binding
+requirement. The library does not implement wallet authentication or an invoice
+registration service. RPC lookups must use a trusted node and report
+confirmed chain state; the injected test lookups are not live-chain verification.
+
+**Quote amount and signature transition:** XNO `totalPrice` and `savings` are
+canonical decimal **strings**; numeric catalog prices retain the decimal value
+of their language's shortest numeric representation. Quote multiplication uses
+integer raw units, rejects fractions of one raw, and passes the exact total to
+checkout and fulfillment. Quantities must be positive, finite, and at most
+`9007199254740991` (the binary64 safe integer limit) in both languages; fractional
+quantities within that range remain supported when the total is a whole raw. Supply precise decimal strings to the low-level
+settlement helper for amounts that cannot be represented by a catalog number.
+The XNO HMAC amount field is an integer raw string; other currencies keep their
+two-decimal amount field. Both implementations append the compact UTF-8 JSON
+array `[protocol,payTo,network,token,checkoutUrl]` (absent optional values become
+empty strings). Shared fixed fixtures cover USD, sub-cent XNO, one raw, a
+high-precision string total, Unicode, and settlement tampering.
+
+Deploy Node and Python together and regenerate outstanding quotes at the
+transition. Previously issued signatures are rejected; there is no fallback
+that accepts settlement instructions outside the signature. Other currencies
+retain numeric quote totals. Nano settlement is implemented by the Node
+Express/Fastify and Python ASGI checkout adapters; the Next.js and Cloudflare
+payment adapters do not implement this rail.
+
+A nano settlement is only accepted for a total denominated in **XNO**: the quote's
+`totalPrice` is in the quote's own currency, and a USD total is not an amount of
+XNO. Amounts are scaled to raw by exact decimal arithmetic, so sub-cent prices
+(`1e-7` XNO and below) and amounts no double can hold are converted exactly;
+an amount finer than one raw is refused rather than silently truncated.
+
+
 **Going to production:** replace the zero-address `payTo` with your real destination via `createDefaultManifest({ payTo: '...' })`, swap the TEST-mode proof minter for a genuine x402 payment verification flow, and keep `UCP_SECRET_KEY` in your secret manager. Fulfillment hooks (`onCheckoutComplete`) let you deliver the download, license key, or API grant inside checkout.
 
 ---
@@ -435,7 +593,7 @@ python -m build --outdir dist-py
 python -m twine check dist-py/*
 ```
 
-`npm run verify` runs 37 Node protocol tests plus the CI contract suite. The Python command runs 28 protocol tests. The editable first-party package is removed only after tests so the strict audit covers the resolved third-party environment without misclassifying the unpublished local distribution. The wheel build explicitly excludes `python/tests`.
+`npm run verify` runs the Node protocol and CI contract suites. The Python command runs the Python protocol suite. The editable first-party package is removed only after tests so the strict audit covers the resolved third-party environment without misclassifying the unpublished local distribution. The wheel build explicitly excludes `python/tests`.
 
 Release tags invoke a separate, tag-only workflow. Both npm and PyPI jobs consume already-validated artifacts and request short-lived OIDC credentials inside dedicated `npm` and `pypi` environments. The workflow contains no registry write token. Those environments and trusted-publisher relationships must still be configured by an authorized registry operator; a green local or GitHub build is not proof that either registry publication completed.
 
