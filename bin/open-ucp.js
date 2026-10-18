@@ -95,11 +95,6 @@ async function handleInit(args) {
   const parsed = parseArgs(args);
   const targetFile = path.resolve(process.cwd(), 'ucp.config.json');
 
-  if (fs.existsSync(targetFile) && !parsed.force) {
-    console.log(`\x1b[33m[!] ucp.config.json already exists at ${targetFile}. Use --force to overwrite.\x1b[0m`);
-    return;
-  }
-
   const name = parsed.name || 'Nymrel Autonomous Store';
   const url = parsed.url || 'https://example.com';
   const email = parsed.email || 'contact@nymrel.com';
@@ -214,7 +209,20 @@ async function handleInit(args) {
     ]
   };
 
-  fs.writeFileSync(targetFile, JSON.stringify(starterConfig, null, 2), 'utf-8');
+  try {
+    // Create exclusively so a concurrent file or dangling symlink cannot bypass
+    // the default no-overwrite behavior. Overwriting still requires --force.
+    fs.writeFileSync(targetFile, JSON.stringify(starterConfig, null, 2), {
+      encoding: 'utf-8',
+      flag: parsed.force ? 'w' : 'wx'
+    });
+  } catch (err) {
+    if (!parsed.force && err.code === 'EEXIST') {
+      console.log(`\x1b[33m[!] ucp.config.json already exists at ${targetFile}. Use --force to overwrite.\x1b[0m`);
+      return;
+    }
+    throw err;
+  }
   console.log(`\x1b[32m[✓] Scaffolded starter UCP configuration:\x1b[0m ${targetFile}`);
   console.log(`\x1b[36m    Next steps:\x1b[0m`);
   console.log(`      1. Validate:   open-ucp validate ucp.config.json`);
