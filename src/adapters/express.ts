@@ -9,17 +9,21 @@ import { IncomingMessage, ServerResponse } from 'node:http';
 import { UCPManifest, QuoteRequest, PaymentProof } from '../core/types.js';
 import { ProductCatalog } from '../core/catalog.js';
 import { NegotiationEngine } from '../negotiation/engine.js';
-import { X402PaymentHandler } from '../core/x402.js';
+import { X402PaymentHandler, NanoReceiptLedger } from '../core/x402.js';
+import { NanoRpcLookup } from '../core/nano.js';
 
 export interface UCPServerConfig {
   manifest: UCPManifest;
   catalog: ProductCatalog;
   secretKey: string;
+  /** Use a durable atomic store shared by every worker and retained across restarts. */
+  nanoReceiptLedger?: NanoReceiptLedger;
+  nanoRpcLookup?: NanoRpcLookup;
   onCheckoutComplete?: (data: {
     quoteId: string;
     sku: string;
     quantity: number;
-    amount: number;
+    amount: number | string;
     receiptId: string;
     payerId: string;
   }) => Promise<Record<string, unknown>> | Record<string, unknown>;
@@ -41,7 +45,9 @@ export function ucpExpressMiddleware(config: UCPServerConfig) {
     secretKey: config.secretKey,
     payTo: configuredPayTo,
     defaultNetwork: config.manifest.paymentRails?.x402?.defaultNetwork,
-    defaultCurrency: config.manifest.catalogSummary?.currency || 'USD'
+    defaultCurrency: config.manifest.catalogSummary?.currency || 'USD',
+    nanoReceiptLedger: config.nanoReceiptLedger,
+    nanoRpcLookup: config.nanoRpcLookup
   });
 
   return async (req: IncomingMessage & { body?: any; url?: string; method?: string }, res: ServerResponse, next?: ExpressNextFunction) => {

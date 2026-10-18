@@ -72,6 +72,7 @@ export const defaultNanoRpcLookup: NanoRpcLookup = async (
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body,
+    signal: AbortSignal.timeout(10_000),
   });
   if (!res.ok) return null;
   const data: any = await res.json();
@@ -104,6 +105,7 @@ const RAW_DECIMALS = 30;
  * `"1e-7"`, not `"0.0000001"`). Never goes through a float.
  */
 function decimalLiteralToRaw(literal: string): bigint {
+  if (literal.length > 256) throw new Error('nano amount literal is too long');
   const m = /^([+-]?)(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/.exec(literal.trim());
   if (!m || (!m[2] && !m[3])) {
     throw new Error(`nano amount is not a decimal number: ${literal}`);
@@ -112,6 +114,9 @@ function decimalLiteralToRaw(literal: string): bigint {
   const whole = m[2] || '';
   const frac = m[3] || '';
   const exp = Number(m[4] || '0');
+  if (!Number.isSafeInteger(exp) || Math.abs(exp) > 128) {
+    throw new Error('nano amount exponent is out of range');
+  }
   if (sign === '-' && /[1-9]/.test(whole + frac)) {
     throw new Error('nano amount must be a non-negative finite number');
   }
@@ -149,6 +154,21 @@ export function xnoToRaw(amountXno: number | string): string {
     return decimalLiteralToRaw(String(amountXno)).toString();
   }
   return decimalLiteralToRaw(amountXno).toString();
+}
+
+/** Canonical decimal serialization, including signed savings, without a float. */
+export function rawToXno(raw: bigint): string {
+  const sign = raw < 0n ? '-' : '';
+  const digits = (raw < 0n ? -raw : raw).toString().padStart(31, '0');
+  const fraction = digits.slice(-30).replace(/0+$/, '');
+  return sign + digits.slice(0, -30) + (fraction ? '.' + fraction : '');
+}
+
+/** Exact quote multiplication. A fractional raw is rejected rather than rounded. */
+export function xnoTotal(unitPrice: number, quantity: number): bigint {
+  const scaled = BigInt(xnoToRaw(unitPrice)) * BigInt(xnoToRaw(quantity));
+  if (scaled % XNO_RAW !== 0n) throw new Error('nano quote total is finer than 1 raw');
+  return scaled / XNO_RAW;
 }
 
 /**
@@ -247,6 +267,7 @@ export async function verifyNanoReceipt(
   }
   let actualRaw: bigint;
   try {
+    if (!/^[0-9]+$/.test(info.amountRaw)) throw new Error('Non-decimal raw');
     actualRaw = BigInt(info.amountRaw);
   } catch {
     return {

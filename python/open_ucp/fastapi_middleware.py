@@ -9,7 +9,8 @@ from typing import Dict, Any, Callable, Optional, Awaitable, List
 from .core import ProductCatalog
 from .negotiation import NegotiationEngine
 from .x402 import X402PaymentHandler
-from .types import QuoteRequest
+from .types import QuoteRequest, SignedQuote
+from .nano import NanoRpcLookup, NanoReceiptLedger
 
 
 class UCPFastAPIMiddleware:
@@ -27,7 +28,9 @@ class UCPFastAPIMiddleware:
         manifest: Dict[str, Any],
         catalog: ProductCatalog,
         secret_key: str,
-        on_checkout_complete: Optional[Callable[[Dict[str, Any]], Awaitable[Dict[str, Any]]]] = None
+        on_checkout_complete: Optional[Callable[[Dict[str, Any]], Awaitable[Dict[str, Any]]]] = None,
+        nano_rpc_lookup: Optional[NanoRpcLookup] = None,
+        nano_receipt_ledger: Optional[NanoReceiptLedger] = None
     ):
         self.app = app
         self.manifest = manifest
@@ -46,7 +49,9 @@ class UCPFastAPIMiddleware:
             secret_key=secret_key,
             pay_to=manifest.get("paymentRails", {}).get("x402", {}).get("payTo", "0x0"),
             default_network=manifest.get("paymentRails", {}).get("x402", {}).get("defaultNetwork", "polygon"),
-            default_currency=manifest.get("catalogSummary", {}).get("currency", "USD")
+            default_currency=manifest.get("catalogSummary", {}).get("currency", "USD"),
+            nano_rpc_lookup=nano_rpc_lookup,
+            nano_receipt_ledger=nano_receipt_ledger
         )
 
     async def __call__(self, scope: Dict[str, Any], receive: Callable, send: Callable) -> None:
@@ -92,7 +97,7 @@ class UCPFastAPIMiddleware:
 
             req_obj = QuoteRequest(
                 sku=body["sku"],
-                quantity=int(body["quantity"]),
+                quantity=body["quantity"],
                 agent_id=body["agentId"],
                 client_nonce=body.get("clientNonce", "0"),
                 proposed_price=float(body["proposedPrice"]) if "proposedPrice" in body else None
@@ -112,7 +117,31 @@ class UCPFastAPIMiddleware:
                 await self._send_json(send, 400, {"error": "Missing required fields: quote, paymentProof"})
                 return
 
-            payment_verify = self.payment_handler.verify_payment(payment_proof)
+            try:
+                quote = SignedQuote.from_dict(raw_quote)
+                verification = self.negotiation_engine.verify_quote(quote)
+            except (KeyError, TypeError, ValueError):
+                verification = {"valid": False, "reason": "Malformed signed quote"}
+            if not verification["valid"]:
+                await self._send_json(send, 422, {"error": verification.get("reason")})
+                return
+
+            if quote.settlement_instructions.get("network") == "nano":
+                configured_pay_to = self.manifest.get("paymentRails", {}).get("x402", {}).get("payTo")
+                quoted_pay_to = quote.settlement_instructions.get("payTo")
+                if configured_pay_to and quoted_pay_to and configured_pay_to != quoted_pay_to:
+                    await self._send_json(send, 422, {"error": "Quote pay-to does not match this merchant"})
+                    return
+                tx_hash = payment_proof.get("txHash") if isinstance(payment_proof, dict) else None
+                if not tx_hash:
+                    await self._send_json(send, 402, {"error": "A nano settlement requires a txHash (block hash)"})
+                    return
+                payment_verify = await self.payment_handler.verify_nano_settlement(
+                    tx_hash=tx_hash, amount_xno=quote.total_price, quote_id=quote.quote_id,
+                    currency=quote.currency, pay_to=configured_pay_to
+                )
+            else:
+                payment_verify = self.payment_handler.verify_payment(payment_proof)
             if not payment_verify.verified:
                 await self._send_json(send, 402, {"error": payment_verify.error or "Payment proof verification failed"})
                 return

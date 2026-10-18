@@ -14,6 +14,7 @@ import {
   PricingTier
 } from '../core/types.js';
 import { NegotiationEngineOptions } from './types.js';
+import { rawToXno, xnoToRaw, xnoTotal } from '../core/nano.js';
 
 export class NegotiationEngine {
   private secretKey: string;
@@ -54,6 +55,7 @@ export class NegotiationEngine {
     }
 
     const basePrice = product.basePrice;
+    const isXno = product.currency.toUpperCase() === 'XNO';
     let effectiveUnitPrice = basePrice;
     let appliedDiscountPercent = 0;
 
@@ -94,9 +96,8 @@ export class NegotiationEngine {
         const volumeFactor = Math.min(1, Math.log10(request.quantity + 1) * volumeSens);
         
         // Counter-offer bridges the gap weighted by volume
-        const counterPrice = Number(
-          (minPrice + (effectiveUnitPrice - minPrice) * (1 - volumeFactor * 0.5)).toFixed(2)
-        );
+        const curvePrice = minPrice + (effectiveUnitPrice - minPrice) * (1 - volumeFactor * 0.5);
+        const counterPrice = isXno ? curvePrice : Number(curvePrice.toFixed(2));
 
         if (proposed >= counterPrice) {
           effectiveUnitPrice = proposed;
@@ -121,9 +122,12 @@ export class NegotiationEngine {
       reason = 'Fixed pricing policy in effect. Negotiation not enabled for this SKU.';
     }
 
-    const totalPrice = Number((effectiveUnitPrice * request.quantity).toFixed(2));
-    const baseTotal = Number((basePrice * request.quantity).toFixed(2));
-    const savings = Number((baseTotal - totalPrice).toFixed(2));
+    const totalRaw = isXno ? xnoTotal(effectiveUnitPrice, request.quantity) : 0n;
+    const baseRaw = isXno ? xnoTotal(basePrice, request.quantity) : 0n;
+    const totalPrice = isXno ? rawToXno(totalRaw)
+      : Number((effectiveUnitPrice * request.quantity).toFixed(2));
+    const savings = isXno ? rawToXno(baseRaw - totalRaw)
+      : Number((Number((basePrice * request.quantity).toFixed(2)) - Number(totalPrice)).toFixed(2));
 
     const quoteId = 'ucp_quote_' + crypto.randomBytes(12).toString('hex');
     const now = new Date();
@@ -269,7 +273,7 @@ export class NegotiationEngine {
     quoteId: string;
     sku: string;
     quantity: number;
-    totalPrice: number;
+    totalPrice: number | string;
     currency: string;
     expiresAt: string;
     agentId: string;
@@ -281,7 +285,8 @@ export class NegotiationEngine {
       payload.quoteId,
       payload.sku,
       payload.quantity.toString(),
-      payload.totalPrice.toFixed(2),
+      payload.currency.toUpperCase() === 'XNO' ? xnoToRaw(payload.totalPrice)
+        : Number(payload.totalPrice).toFixed(2),
       payload.currency.toUpperCase(),
       payload.expiresAt,
       payload.agentId,

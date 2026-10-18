@@ -427,8 +427,12 @@ confirms every later order at or below its amount. A payment is two blocks - the
 payer's send and the merchant's receive that pockets it - so the ledger is keyed
 on the send's hash (for a receive, its `link`/`source`), and presenting the same
 payment once as its send and once as its receive settles one order, not two.
-The default ledger is in-process: a merchant running more than one process must
-pass a shared, atomically-claiming store via `nanoReceiptLedger`.
+The default ledger is in-process and loses its history on restart. Production
+merchants must use a **durable**, shared, atomically-claiming store via
+`nanoReceiptLedger`, including a single worker that may restart. Retain spent
+payment IDs permanently: quote expiration does not make a public block reusable.
+A unique-index insert must return false on duplicate and fail closed if storage
+is unavailable; do not implement a separate read-then-write or expire the entries.
 
 ```javascript
 const pay = new X402PaymentHandler({
@@ -442,6 +446,41 @@ const pay = new X402PaymentHandler({
   }
 });
 ```
+
+The Express/Fastify checkout adapter accepts the same typed options:
+
+```javascript
+const middleware = ucpExpressMiddleware({
+  manifest, catalog, secretKey: process.env.UCP_SECRET_KEY,
+  nanoReceiptLedger: durableAtomicLedger,
+  nanoRpcLookup: trustedNodeLookup // optional: otherwise NANO_RPC_URL/public node
+});
+```
+
+Python exposes `nano_receipt_ledger` and `nano_rpc_lookup` on both
+`X402PaymentHandler` and `UCPFastAPIMiddleware`. Its ledger's `claim(payment_id,
+quote_id)` may return a boolean or awaitable boolean and has the same atomicity
+and durability requirements. RPC lookups must use a trusted node and report
+confirmed chain state; the injected test lookups are not live-chain verification.
+
+**Quote amount and signature transition:** XNO `totalPrice` and `savings` are
+canonical decimal **strings**; numeric catalog prices retain the decimal value
+of their language's shortest numeric representation. Quote multiplication uses
+integer raw units, rejects fractions of one raw, and passes the exact total to
+checkout and fulfillment. Supply precise decimal strings to the low-level
+settlement helper for amounts that cannot be represented by a catalog number.
+The XNO HMAC amount field is an integer raw string; other currencies keep their
+two-decimal amount field. Both implementations append the compact UTF-8 JSON
+array `[protocol,payTo,network,token,checkoutUrl]` (absent optional values become
+empty strings). Shared fixed fixtures cover USD, sub-cent XNO, one raw, a
+high-precision string total, Unicode, and settlement tampering.
+
+Deploy Node and Python together and regenerate outstanding quotes at the
+transition. Previously issued signatures are rejected; there is no fallback
+that accepts settlement instructions outside the signature. Other currencies
+retain numeric quote totals. Nano settlement is implemented by the Node
+Express/Fastify and Python ASGI checkout adapters; the Next.js and Cloudflare
+payment adapters do not implement this rail.
 
 A nano settlement is only accepted for a total denominated in **XNO**: the quote's
 `totalPrice` is in the quote's own currency, and a USD total is not an amount of

@@ -7,7 +7,7 @@
 
 import * as crypto from 'node:crypto';
 import { X402Challenge, PaymentProof, PaymentVerificationResult } from './types.js';
-import { NanoRpcLookup, defaultNanoRpcLookup, verifyNanoReceipt, xnoToRaw } from './nano.js';
+import { NanoRpcLookup, defaultNanoRpcLookup, verifyNanoReceipt, xnoToRaw, rawToXno } from './nano.js';
 
 /**
  * One Nano payment settles ONE order. A block hash is public and permanent, so
@@ -106,7 +106,7 @@ export class X402PaymentHandler {
     const network = options.network || this.defaultNetwork;
     const ttl = options.ttlSeconds || this.challengeTtlSeconds;
     const expiresAt = new Date(Date.now() + ttl * 1000).toISOString();
-    const amountStr = options.amount.toFixed(2);
+    const amountStr = currency === 'XNO' ? rawToXno(BigInt(xnoToRaw(options.amount))) : options.amount.toFixed(2);
 
     const challengeHeader = `X-402 realm="UCP", pay_to="${payTo}", amount="${amountStr}", currency="${currency}", network="${network}"${
       options.quoteId ? `, quote_id="${options.quoteId}"` : ''
@@ -328,7 +328,12 @@ export class X402PaymentHandler {
     if (!result.verified || !result.paymentId) {
       return { verified: false, error: result.reason || 'Nano settlement not verified' };
     }
-    const claimed = await this.nanoReceiptLedger.claim(result.paymentId, options.quoteId);
+    let claimed: boolean;
+    try {
+      claimed = await this.nanoReceiptLedger.claim(result.paymentId, options.quoteId);
+    } catch {
+      return { verified: false, error: 'Nano receipt ledger unavailable' };
+    }
     if (!claimed) {
       return {
         verified: false,
@@ -339,8 +344,7 @@ export class X402PaymentHandler {
       verified: true,
       receiptId: 'ucp_nano_' + options.txHash.slice(0, 24),
       amount: typeof options.amountXno === 'number'
-        ? options.amountXno
-        : Number(options.amountXno),
+        ? options.amountXno : rawToXno(BigInt(expectedRaw)),
       currency: 'XNO',
       payerId: options.txHash,
     };

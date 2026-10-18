@@ -8,6 +8,9 @@ import hmac
 import hashlib
 import secrets
 import math
+import json
+from decimal import Decimal, ROUND_HALF_UP, localcontext
+from .nano import xno_to_raw, raw_to_xno, xno_total
 from typing import Optional, Dict, Any
 from datetime import datetime, timezone, timedelta
 from .types import (
@@ -15,6 +18,17 @@ from .types import (
     SignedQuote,
     ProductOffer
 )
+
+
+def _js_number_text(value: float) -> str:
+    numeric = Decimal(str(value))
+    if numeric == 0:
+        return "0"
+    if Decimal("0.000001") <= abs(numeric) < Decimal("1e21"):
+        text = format(numeric, "f")
+        return text.rstrip("0").rstrip(".") if "." in text else text
+    mantissa, exponent = format(numeric.normalize(), "e").split("e")
+    return mantissa + "e" + ("+" if int(exponent) >= 0 else "-") + str(abs(int(exponent)))
 
 
 class NegotiationEngine:
@@ -38,9 +52,10 @@ class NegotiationEngine:
         if product.stock_status == "out_of_stock":
             return self._generate_rejected_quote(request, product, "Item is currently out of stock")
 
-        if request.quantity <= 0:
+        if request.quantity <= 0 or not math.isfinite(request.quantity):
             return self._generate_rejected_quote(request, product, "Invalid quantity requested")
 
+        is_xno = product.currency.upper() == "XNO"
         base_price = product.base_price
         effective_unit_price = base_price
         applied_discount = 0.0
@@ -81,7 +96,8 @@ class NegotiationEngine:
                 reason = "Agent proposed price auto-accepted"
             elif proposed >= min_price:
                 volume_factor = min(1.0, math.log10(request.quantity + 1) * rules.volume_sensitivity)
-                counter_price = round(min_price + (effective_unit_price - min_price) * (1.0 - volume_factor * 0.5), 2)
+                curve_price = min_price + (effective_unit_price - min_price) * (1.0 - volume_factor * 0.5)
+                counter_price = curve_price if is_xno else round(curve_price, 2)
 
                 if proposed >= counter_price:
                     effective_unit_price = proposed
@@ -102,15 +118,23 @@ class NegotiationEngine:
             status = "counter_offer"
             reason = "Fixed pricing policy in effect. Negotiation not enabled for this SKU."
 
-        total_price = round(effective_unit_price * request.quantity, 2)
-        base_total = round(base_price * request.quantity, 2)
-        savings = round(base_total - total_price, 2)
+        if is_xno:
+            total_raw = xno_total(effective_unit_price, request.quantity)
+            total_price = raw_to_xno(total_raw)
+            savings = raw_to_xno(xno_total(base_price, request.quantity) - total_raw)
+        else:
+            total_price = round(effective_unit_price * request.quantity, 2)
+            base_total = round(base_price * request.quantity, 2)
+            savings = round(base_total - total_price, 2)
 
         quote_id = f"ucp_quote_{secrets.token_hex(12)}"
         now = datetime.now(timezone.utc)
         issued_at = now.isoformat()
         expires_at = (now + timedelta(seconds=self.default_ttl_seconds)).isoformat()
 
+        settlement = {
+            "protocol": self.default_protocol, "payTo": self.pay_to, "network": self.network
+        }
         sig = self._sign_payload(
             quote_id=quote_id,
             sku=product.sku,
@@ -119,7 +143,8 @@ class NegotiationEngine:
             currency=product.currency,
             expires_at=expires_at,
             agent_id=request.agent_id,
-            client_nonce=request.client_nonce
+            client_nonce=request.client_nonce,
+            settlement_instructions=settlement
         )
 
         return SignedQuote(
@@ -138,11 +163,7 @@ class NegotiationEngine:
             issued_at=issued_at,
             expires_at=expires_at,
             signature=sig,
-            settlement_instructions={
-                "protocol": self.default_protocol,
-                "payTo": self.pay_to,
-                "network": self.network
-            }
+            settlement_instructions=settlement
         )
 
     def verify_quote(self, quote: SignedQuote) -> Dict[str, Any]:
@@ -159,7 +180,8 @@ class NegotiationEngine:
                 currency=quote.currency,
                 expires_at=quote.expires_at,
                 agent_id=quote.agent_id,
-                client_nonce=quote.client_nonce
+                client_nonce=quote.client_nonce,
+                settlement_instructions=quote.settlement_instructions
             )
 
             if not hmac.compare_digest(expected_sig, quote.signature):
@@ -174,13 +196,34 @@ class NegotiationEngine:
         quote_id: str,
         sku: str,
         quantity: int,
-        total_price: float,
+        total_price: float | str,
         currency: str,
         expires_at: str,
         agent_id: str,
-        client_nonce: str
+        client_nonce: str,
+        settlement_instructions: dict
     ) -> str:
-        serialized = f"{quote_id}:{sku}:{quantity}:{total_price:.2f}:{currency.upper()}:{expires_at}:{agent_id}:{client_nonce}"
+        settlement = settlement_instructions or {"protocol": self.default_protocol}
+        instructions = json.dumps([
+            settlement.get("protocol"), settlement.get("payTo") or "",
+            settlement.get("network") or "", settlement.get("token") or "",
+            settlement.get("checkoutUrl") or ""
+        ], ensure_ascii=False, separators=(",", ":"))
+        if currency.upper() == "XNO":
+            amount = xno_to_raw(total_price)
+        elif abs(float(total_price)) >= 1e21:
+            amount = _js_number_text(float(total_price))
+        else:
+            # Match JS toFixed(2): binary64 input, ties away from zero.
+            with localcontext() as ctx:
+                ctx.prec = 400
+                numeric_total = float(total_price)
+                if numeric_total == 0:
+                    numeric_total = 0.0
+                amount = format(Decimal.from_float(numeric_total).quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP), ".2f")
+        quantity_text = _js_number_text(quantity)
+        serialized = f"{quote_id}:{sku}:{quantity_text}:{amount}:{currency.upper()}:{expires_at}:{agent_id}:{client_nonce}:{instructions}"
         return hmac.new(
             self.secret_key.encode("utf-8"),
             serialized.encode("utf-8"),
