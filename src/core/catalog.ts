@@ -106,10 +106,7 @@ export class ProductCatalog {
         seller: {
           '@type': 'Organization',
           name: 'Nymrel',
-          parentOrganization: {
-            '@type': 'Organization',
-            name: 'JalenBuilds LLC'
-          }
+          legalName: 'JalenBuilds LLC'
         }
       }
     };
