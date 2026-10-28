@@ -3,6 +3,8 @@ Unit tests for open_ucp X402 Payment Required Protocol (Python)
 """
 
 import unittest
+import base64
+import json
 from datetime import datetime, timezone, timedelta
 from open_ucp.x402 import X402PaymentHandler
 
@@ -69,6 +71,20 @@ class TestUCPX402(unittest.TestCase):
         verify_res = self.handler.verify_payment(token)
         self.assertFalse(verify_res.verified)
         self.assertIn("expired", verify_res.error)
+
+    def test_reject_noncanonical_payment_signatures(self):
+        token = self.handler.create_payment_proof_token(
+            quote_id="quote", amount=1.0, currency="USD", payer_id="agent"
+        )
+        self.assertTrue(self.handler.verify_payment(token).verified)
+        encoded = token[5:]
+        proof = json.loads(base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)))
+        signature = proof["sig"]
+        for sig in (signature + "z", signature + "f", signature + "\n", signature.upper(), signature[:-1]):
+            with self.subTest(signature=sig):
+                proof["sig"] = sig
+                modified = "x402_" + base64.urlsafe_b64encode(json.dumps(proof).encode()).decode().rstrip("=")
+                self.assertFalse(self.handler.verify_payment(modified).verified)
 
 
 if __name__ == "__main__":

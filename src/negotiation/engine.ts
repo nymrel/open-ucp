@@ -212,7 +212,9 @@ export class NegotiationEngine {
       });
 
       const expectedBuf = Buffer.from(expectedSig, 'hex');
-      const actualBuf = Buffer.from(quote.signature, 'hex');
+      // Buffer's hex decoder silently truncates at invalid characters or an odd nibble.
+      const actualBuf = typeof quote.signature === 'string' && quote.signature.length === 64 && /^[0-9a-f]{64}$/.test(quote.signature)
+        ? Buffer.from(quote.signature, 'hex') : Buffer.alloc(0);
 
       if (expectedBuf.length !== actualBuf.length || !crypto.timingSafeEqual(expectedBuf, actualBuf)) {
         return {
