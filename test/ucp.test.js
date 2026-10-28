@@ -180,6 +180,16 @@ describe('3. Machine Negotiation Engine', () => {
     assert.strictEqual(tamperedResult.valid, false);
     assert.strictEqual(tamperedResult.reason, 'Cryptographic signature mismatch on quote');
   });
+
+  test('rejects non-canonical quote signatures', () => {
+    const quote = engine.createQuote(
+      { sku: 'api-feed-01', quantity: 1, agentId: 'agent_99', clientNonce: 'n6' }, product
+    );
+    assert.strictEqual(engine.verifyQuote(quote).valid, true);
+    for (const signature of [quote.signature + 'z', quote.signature + 'f', quote.signature + '\n', quote.signature.toUpperCase(), quote.signature.slice(0, -1)]) {
+      assert.strictEqual(engine.verifyQuote({ ...quote, signature }).valid, false);
+    }
+  });
 });
 
 describe('4. X402 Payment Protocol Engine', () => {
@@ -233,6 +243,18 @@ describe('4. X402 Payment Protocol Engine', () => {
     assert.strictEqual(verification.currency, 'USD');
     assert.strictEqual(verification.payerId, 'agent_buyer_01');
     assert.ok(verification.receiptId?.startsWith('ucp_rcpt_'));
+  });
+
+  test('rejects non-canonical payment proof signatures', () => {
+    const token = handler.createPaymentProofToken({
+      quoteId: 'ucp_quote_100', amount: 25, currency: 'USD', payerId: 'agent_buyer_01'
+    });
+    const proof = JSON.parse(Buffer.from(token.slice(5), 'base64url').toString('utf8'));
+    assert.strictEqual(handler.verifyPayment(token).verified, true);
+    for (const sig of [proof.sig + 'z', proof.sig + 'f', proof.sig + '\n', proof.sig.toUpperCase(), proof.sig.slice(0, -1)]) {
+      const modified = 'x402_' + Buffer.from(JSON.stringify({ ...proof, sig })).toString('base64url');
+      assert.strictEqual(handler.verifyPayment(modified).verified, false);
+    }
   });
 
   test('should reject invalid or expired payment tokens', () => {

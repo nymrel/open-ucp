@@ -255,7 +255,9 @@ export class X402PaymentHandler {
       const expectedSig = crypto.createHmac('sha256', this.secretKey).update(expectedData).digest('hex');
 
       const expectedBuf = Buffer.from(expectedSig, 'hex');
-      const actualBuf = Buffer.from(decoded.sig, 'hex');
+      // Require the complete canonical digest before using the permissive hex decoder.
+      const actualBuf = typeof decoded.sig === 'string' && decoded.sig.length === 64 && /^[0-9a-f]{64}$/.test(decoded.sig)
+        ? Buffer.from(decoded.sig, 'hex') : Buffer.alloc(0);
 
       if (expectedBuf.length !== actualBuf.length || !crypto.timingSafeEqual(expectedBuf, actualBuf)) {
         return { verified: false, error: 'Invalid cryptographic signature on payment proof' };
