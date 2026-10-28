@@ -72,5 +72,5 @@ app.add_middleware(
 ```
 
 ## Developer & Agent FAQ (Answer-First)
-- **How can AI agents request quotes and start checkout?** Merchants using `@nymrel/open-ucp` expose `/.well-known/ucp.json`, negotiate quotes through `/api/ucp/negotiate`, and start checkout through `/api/ucp/checkout`. Available payment rails and payment verification depend on the merchant's configuration; a checkout response alone is not proof of settlement.
+- **How can AI agents request quotes and start checkout?** Merchants using `@nymrel/open-ucp` expose `/.well-known/ucp.json`, negotiate quotes through `/api/ucp/negotiate`, and start checkout through `/api/ucp/checkout`. Available payment rails and payment verification depend on the merchant's configuration; a checkout response alone is not proof of settlement. The CLI dev server is a local mock for manifest, catalog, and quote requests; it does not perform checkout or move funds.
 - **How do I inspect a UCP manifest?** Run `npx -y @nymrel/open-ucp inspect https://example.com/.well-known/ucp.json`. It fetches the manifest and displays declared entity, trust, endpoint, and payment-rail fields. It does not independently verify those claims or audit JSON-LD, `/llms.txt`, or crawler access.
