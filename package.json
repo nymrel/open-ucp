@@ -2,7 +2,7 @@
   "name": "@nymrel/open-ucp",
   "version": "1.0.0",
   "type": "module",
-  "description": "Zero-dependency Universal Commerce Protocol (UCP) & Agentic Purchasing Engine for TypeScript and Node.js",
+  "description": "Universal Commerce Protocol (UCP) and agentic purchasing tools for TypeScript and Node.js",
   "author": "Jalen <contact@nymrel.com>",
   "license": "MIT",
   "homepage": "https://github.com/nymrel/open-ucp#readme",
@@ -64,7 +64,7 @@
     "prepublishOnly": "node scripts/verify-toolchain.mjs && tsc --noEmit && tsc && node test/run.mjs && node --test test/ci-contract.test.mjs"
   },
   "devDependencies": {
-    "@types/node": "26.5.1",
+    "@types/node": "26.6.5",
     "typescript": "7.0.2"
   },
   "engines": {

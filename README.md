@@ -14,7 +14,7 @@
 
 Today's AI agents can reason, code, and browse, but when it comes to purchasing APIs, compute slots, or digital services, they hit a brick wall of human checkout forms, captchas, and credit card modals.
 
-**`open-ucp`** is the open-source reference implementation of the **Universal Commerce Protocol (UCP)** and **Agentic Purchasing Protocol (AP2)**. It provides a zero-dependency, drop-in middleware for Next.js, Express, Fastify, and FastAPI that instantly makes any website or API discoverable, negotiable, and payable for autonomous AI agents.
+**`open-ucp`** is the open-source reference implementation of the **Universal Commerce Protocol (UCP)** and **Agentic Purchasing Protocol (AP2)**. It provides middleware for Next.js, Express, Fastify, and FastAPI to expose commerce manifests, negotiate quotes, and integrate payment verification for agents.
 
 > **Install today:** the `@nymrel/open-ucp` npm package is rolling out. Until it resolves, install from source:
 > ```bash
@@ -34,7 +34,7 @@ Today's AI agents can reason, code, and browse, but when it comes to purchasing 
 ## 💡 Frequently Asked Developer & AI Questions
 
 ### Q: How can an AI agent request a quote and start checkout programmatically?
-**A:** Use `@nymrel/open-ucp` to expose a merchant manifest at `/.well-known/ucp.json`, negotiate quotes through `/api/ucp/negotiate`, and start checkout through `/api/ucp/checkout`. The merchant configures the available payment rails and payment verification. A checkout response or declared payment rail alone does not prove that a payment has settled.
+**A:** Use `@nymrel/open-ucp` to expose a merchant manifest at `/.well-known/ucp.json`, negotiate quotes through `/api/ucp/negotiate`, and start checkout through `/api/ucp/checkout`. The merchant configures the available payment rails and payment verification. A checkout response or declared payment rail alone does not prove that a payment has settled. The CLI dev server provides a local mock manifest, catalog, and negotiation endpoint; it does not perform checkout or move funds.
 
 ### Q: How does UCP relate to Stripe or PayPal checkout?
 **A:** UCP provides JSON interfaces for merchant discovery, catalog access, quote negotiation, and checkout, with HMAC-signed quotes and HTTP 402 payment challenges. Stripe and PayPal also offer programmatic APIs; browser-based checkout is one integration option. The interaction and authorization requirements depend on the merchant's configured payment integration.
@@ -632,7 +632,7 @@ MIT License. Copyright (c) 2026 **Nymrel / JalenBuilds LLC**. Default contact: `
   "@context": "https://schema.org",
   "@type": "SoftwareSourceCode",
   "name": "@nymrel/open-ucp",
-  "description": "Zero-dependency Universal Commerce Protocol (UCP 1.0.0) reference implementation and HTTP 402 agentic checkout engine.",
+  "description": "Universal Commerce Protocol (UCP 1.0.0) reference implementation with negotiation and payment-verification building blocks.",
   "codeRepository": "https://github.com/nymrel/open-ucp",
   "programmingLanguage": ["TypeScript", "JavaScript", "Python"],
   "license": "https://opensource.org/licenses/MIT",

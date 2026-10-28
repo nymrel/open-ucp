@@ -12,13 +12,13 @@ const dependabot = read(".github/dependabot.yml");
 
 const pins = {
   checkout: "3d3c42e5aac5ba805825da76410c181273ba90b1",
-  setupNode: "820762786026740c76f36085b0efc47a31fe5020",
+  setupNode: "949feb2413d6458794dcd2491c4babbbce0c15c1",
   setupPython: "5fda3b95a4ea91299a34e894583c3862153e4b97",
-  uploadArtifact: "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
-  downloadArtifact: "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
-  codeql: "cdf488f595d80d6e07e03d4674febd5ab45fa938",
+  uploadArtifact: "cf430e030ddbb5b0abf93d22962f4752f3646cd9",
+  downloadArtifact: "9000827ccba6bdab643e8b6fd33ac0654aef8333",
+  codeql: "24c54180a607b1449ed407dd24f251e4e9147c8d",
   pypiPublish: "dc37677b2e1c63e2034f94d8a5b11f265b73ba33",
-  zizmor: "70fb788f84895a7701f5643d103d587e460b5c99",
+  zizmor: "cc914d7f3750a2d13d75c7f184a1060aa0e9d482",
 };
 
 function assertedActionPins(workflow) {
@@ -35,7 +35,7 @@ test("package policy is exact and fail closed", () => {
   assert.equal(packageJson.engines.node, ">=22 <25");
   assert.equal(packageJson.packageManager, "npm@12.0.2");
   assert.deepEqual(packageJson.devDependencies, {
-    "@types/node": "26.5.1",
+    "@types/node": "26.6.5",
     typescript: "7.0.2",
   });
   assert.deepEqual(packageJson.files.slice(0, 4), [
