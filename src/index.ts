@@ -10,8 +10,8 @@
 export * from './core/types.js';
 export { UCPManifestBuilder, createDefaultManifest } from './core/manifest.js';
 export { ProductCatalog } from './core/catalog.js';
-export { X402PaymentHandler, X402Options } from './core/x402.js';
-
+export { X402PaymentHandler, X402Options, NanoReceiptLedger, InMemoryNanoReceiptLedger } from './core/x402.js';
+export * from './core/nano.js';
 // Negotiation Engine Exports
 export { NegotiationEngine } from './negotiation/engine.js';
 export { NegotiationEngineOptions } from './negotiation/types.js';

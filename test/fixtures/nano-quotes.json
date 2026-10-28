@@ -1,0 +1,145 @@
+{
+  "secret": "shared-nano-fixture-secret",
+  "cases": [
+    {
+      "name": "usd",
+      "quote": {
+        "quoteId": "fixture-usd",
+        "sku": "micro",
+        "quantity": 1,
+        "unitPrice": 10,
+        "totalPrice": 10,
+        "currency": "USD",
+        "discountPercent": 0,
+        "savings": 0,
+        "agentId": "agent",
+        "clientNonce": "nonce",
+        "status": "accepted",
+        "reason": "Fixture",
+        "issuedAt": "2026-10-18T00:00:00.000Z",
+        "expiresAt": "2099-01-01T00:00:00.000Z",
+        "settlementInstructions": {
+          "protocol": "x402",
+          "payTo": "nano_商店:receiver",
+          "network": "polygon",
+          "token": "α",
+          "checkoutUrl": "https://example.test/pay?a=1&b=2"
+        },
+        "signature": "bc7847f8e86bdcbdeee354fd13e6ec2327fc2320ae8bc6f1abfe872963322067"
+      },
+      "signature": "bc7847f8e86bdcbdeee354fd13e6ec2327fc2320ae8bc6f1abfe872963322067"
+    },
+    {
+      "name": "micro",
+      "quote": {
+        "quoteId": "fixture-micro",
+        "sku": "micro",
+        "quantity": 1,
+        "unitPrice": 1e-07,
+        "totalPrice": "0.0000001",
+        "currency": "XNO",
+        "discountPercent": 0,
+        "savings": "0",
+        "agentId": "agent",
+        "clientNonce": "nonce",
+        "status": "accepted",
+        "reason": "Fixture",
+        "issuedAt": "2026-10-18T00:00:00.000Z",
+        "expiresAt": "2099-01-01T00:00:00.000Z",
+        "settlementInstructions": {
+          "protocol": "x402",
+          "payTo": "nano_商店:receiver",
+          "network": "nano",
+          "token": "α",
+          "checkoutUrl": "https://example.test/pay?a=1&b=2"
+        },
+        "signature": "ed097728efcdeecf33757dac5e47c9fad5262458fda64c0fe9a5a597562386e3"
+      },
+      "signature": "ed097728efcdeecf33757dac5e47c9fad5262458fda64c0fe9a5a597562386e3"
+    },
+    {
+      "name": "one-raw",
+      "quote": {
+        "quoteId": "fixture-one-raw",
+        "sku": "micro",
+        "quantity": 1,
+        "unitPrice": 1e-07,
+        "totalPrice": "0.000000000000000000000000000001",
+        "currency": "XNO",
+        "discountPercent": 0,
+        "savings": "0",
+        "agentId": "agent",
+        "clientNonce": "nonce",
+        "status": "accepted",
+        "reason": "Fixture",
+        "issuedAt": "2026-10-18T00:00:00.000Z",
+        "expiresAt": "2099-01-01T00:00:00.000Z",
+        "settlementInstructions": {
+          "protocol": "x402",
+          "payTo": "nano_商店:receiver",
+          "network": "nano",
+          "token": "α",
+          "checkoutUrl": "https://example.test/pay?a=1&b=2"
+        },
+        "signature": "0f4190c36ddbd88bbe8e6fbfc11e67ec2ad721679bd038abd4eb86ed0c5caf03"
+      },
+      "signature": "0f4190c36ddbd88bbe8e6fbfc11e67ec2ad721679bd038abd4eb86ed0c5caf03"
+    },
+    {
+      "name": "wide",
+      "quote": {
+        "quoteId": "fixture-wide",
+        "sku": "micro",
+        "quantity": 1,
+        "unitPrice": 1e-07,
+        "totalPrice": "1.000000000000000000000000000001",
+        "currency": "XNO",
+        "discountPercent": 0,
+        "savings": "0",
+        "agentId": "agent",
+        "clientNonce": "nonce",
+        "status": "accepted",
+        "reason": "Fixture",
+        "issuedAt": "2026-10-18T00:00:00.000Z",
+        "expiresAt": "2099-01-01T00:00:00.000Z",
+        "settlementInstructions": {
+          "protocol": "x402",
+          "payTo": "nano_商店:receiver",
+          "network": "nano",
+          "token": "α",
+          "checkoutUrl": "https://example.test/pay?a=1&b=2"
+        },
+        "signature": "276fb1ab13898a6d85b08bcd392906dbf5d030de7b2acf69026ca1cccd6b62e0"
+      },
+      "signature": "276fb1ab13898a6d85b08bcd392906dbf5d030de7b2acf69026ca1cccd6b62e0"
+    },
+    {
+      "name": "usd-tie",
+      "quote": {
+        "quoteId": "fixture-usd-tie",
+        "sku": "micro",
+        "quantity": 1,
+        "unitPrice": 1.125,
+        "totalPrice": 1.125,
+        "currency": "USD",
+        "discountPercent": 0,
+        "savings": 0,
+        "agentId": "agent",
+        "clientNonce": "nonce",
+        "status": "accepted",
+        "reason": "Fixture",
+        "issuedAt": "2026-10-18T00:00:00.000Z",
+        "expiresAt": "2099-01-01T00:00:00.000Z",
+        "settlementInstructions": {
+          "protocol": "x402",
+          "payTo": "nano_商店:receiver",
+          "network": "polygon",
+          "token": "α",
+          "checkoutUrl": "https://example.test/pay?a=1&b=2"
+        },
+        "signature": "ade9d915241e7d1aeef1f40c225dfe3a25e1f7e26361187c8e9076029108ee5f"
+      },
+      "signature": "ade9d915241e7d1aeef1f40c225dfe3a25e1f7e26361187c8e9076029108ee5f"
+    }
+  ]
+}

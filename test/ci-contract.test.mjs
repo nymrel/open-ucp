@@ -12,13 +12,13 @@ const dependabot = read(".github/dependabot.yml");
 
 const pins = {
   checkout: "3d3c42e5aac5ba805825da76410c181273ba90b1",
-  setupNode: "820762786026740c76f36085b0efc47a31fe5020",
+  setupNode: "949feb2413d6458794dcd2491c4babbbce0c15c1",
   setupPython: "5fda3b95a4ea91299a34e894583c3862153e4b97",
-  uploadArtifact: "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
-  downloadArtifact: "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
-  codeql: "cdf488f595d80d6e07e03d4674febd5ab45fa938",
+  uploadArtifact: "cf430e030ddbb5b0abf93d22962f4752f3646cd9",
+  downloadArtifact: "9000827ccba6bdab643e8b6fd33ac0654aef8333",
+  codeql: "24c54180a607b1449ed407dd24f251e4e9147c8d",
   pypiPublish: "dc37677b2e1c63e2034f94d8a5b11f265b73ba33",
-  zizmor: "70fb788f84895a7701f5643d103d587e460b5c99",
+  zizmor: "cc914d7f3750a2d13d75c7f184a1060aa0e9d482",
 };
 
 function assertedActionPins(workflow) {
@@ -35,7 +35,7 @@ test("package policy is exact and fail closed", () => {
   assert.equal(packageJson.engines.node, ">=22 <25");
   assert.equal(packageJson.packageManager, "npm@12.0.2");
   assert.deepEqual(packageJson.devDependencies, {
-    "@types/node": "26.5.1",
+    "@types/node": "26.6.5",
     typescript: "7.0.2",
   });
   assert.deepEqual(packageJson.files.slice(0, 4), [
@@ -101,6 +101,15 @@ test("CodeQL is least privilege and covers both implementation languages", () =>
   assert(uses.includes(`actions/checkout@${pins.checkout}`));
   assert.equal(uses.filter((use) => use === `github/codeql-action/init@${pins.codeql}`).length, 1);
   assert.equal(uses.filter((use) => use === `github/codeql-action/analyze@${pins.codeql}`).length, 1);
+  assert(uses.includes(`actions/upload-artifact@${pins.uploadArtifact}`));
+  assert(codeql.includes("output: codeql-results"));
+  assert(codeql.includes("path: codeql-results/*.sarif"));
+  assert(codeql.includes("name: codeql-sarif-${{ matrix.language }}"));
+  assert(codeql.includes("if: always()"));
+  assert(codeql.includes("retention-days: 3"));
+  assert(codeql.includes("Summarize high-severity CodeQL findings for review"));
+  assert(codeql.includes('print("CODEQL_REVIEW " + json.dumps(finding, ensure_ascii=True))'));
+  assert(!codeql.includes("continue-on-error"));
 });
 
 test("release is tag-only, tokenless, artifact-gated, and environment-scoped", () => {
@@ -143,7 +152,7 @@ test("release is tag-only, tokenless, artifact-gated, and environment-scoped", (
 test("Python packaging is single-source and excludes tests", () => {
   const pyproject = read("pyproject.toml");
   assert(!existsSync(new URL("../setup.py", import.meta.url)), "legacy setup.py must stay removed");
-  assert(pyproject.includes('requires = ["setuptools==84.0.0"]'));
+  assert(pyproject.includes('requires = ["setuptools==84.2.0"]'));
   assert(pyproject.includes('requires-python = ">=3.11,<3.15"'));
   assert(pyproject.includes('license = "MIT"'));
   assert(pyproject.includes('include = ["open_ucp*"]'));
@@ -152,11 +161,11 @@ test("Python packaging is single-source and excludes tests", () => {
   assert(pyproject.includes('select = ["E4", "E7", "E9", "F"]'));
   assert.deepEqual(read("requirements-dev.txt").trim().split(/\r?\n/u), [
     "bandit==1.9.4",
-    "build==1.6.0",
+    "build==1.6.1",
     "pip-audit==2.10.1",
     "PyYAML==6.0.3",
-    "ruff==0.16.6",
-    "setuptools==84.0.0",
+    "ruff==0.17.1",
+    "setuptools==84.2.0",
     "twine==7.0.0",
   ]);
 });

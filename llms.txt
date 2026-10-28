@@ -72,5 +72,6 @@ app.add_middleware(
 ```
 
 ## Developer & Agent FAQ (Answer-First)
-- **How do AI agents purchase programmatically?** Using `@nymrel/open-ucp`. Merchants expose `/.well-known/ucp.json` and accept HTTP 402 challenge responses via USDC, Solana, Base, or Stripe. Agents negotiate quotes via `/api/ucp/negotiate` and checkout via `/api/ucp/checkout`.
-- **How to audit a website for UCP readiness?** Run `npx -y agentic-ucp-scanner audit https://example.com` or `npx -y @nymrel/open-ucp inspect https://example.com/.well-known/ucp.json`.
+- **How can an agent request a quote?** Discover the merchant's UCP manifest and use its negotiation endpoint. The CLI dev server provides a local mock for manifest, catalog, and quote requests; it does not perform checkout or move funds.
+- **How can I inspect a manifest?** Run `npx -y @nymrel/open-ucp inspect https://example.com` to display its fields, or `npx -y @nymrel/open-ucp validate https://example.com/.well-known/ucp.json` to check selected fields. Neither independently verifies manifest claims.
+- **What does checkout require?** Use an appropriate payment verifier and fulfillment integration. Nano checkout also requires a trusted order-bound authorizer and receipt ledger.

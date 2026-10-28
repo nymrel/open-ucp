@@ -3,6 +3,7 @@ Unit tests for open_ucp Machine Negotiation Engine (Python)
 """
 
 import unittest
+from dataclasses import replace
 from open_ucp.negotiation import NegotiationEngine
 from open_ucp.types import QuoteRequest, ProductOffer, PricingTier, NegotiationRules
 
@@ -113,6 +114,15 @@ class TestUCPNegotiation(unittest.TestCase):
         tampered_res = self.engine.verify_quote(quote)
         self.assertFalse(tampered_res["valid"])
         self.assertIn("signature mismatch", tampered_res["reason"])
+
+    def test_reject_noncanonical_signatures(self):
+        quote = self.engine.create_quote(QuoteRequest(
+            sku="llm-api-batch", quantity=1, agent_id="agent", client_nonce="nonce"
+        ), self.product)
+        self.assertTrue(self.engine.verify_quote(quote)["valid"])
+        for signature in (quote.signature + "z", quote.signature + "f", quote.signature + "\n", quote.signature.upper(), quote.signature[:-1]):
+            with self.subTest(signature=signature):
+                self.assertFalse(self.engine.verify_quote(replace(quote, signature=signature))["valid"])
 
 
 if __name__ == "__main__":

@@ -14,6 +14,7 @@ import {
   PricingTier
 } from '../core/types.js';
 import { NegotiationEngineOptions } from './types.js';
+import { rawToXno, xnoToRaw, xnoTotal } from '../core/nano.js';
 
 export class NegotiationEngine {
   private secretKey: string;
@@ -45,7 +46,7 @@ export class NegotiationEngine {
       );
     }
 
-    if (request.quantity <= 0 || !Number.isFinite(request.quantity)) {
+    if (request.quantity <= 0 || !Number.isFinite(request.quantity) || request.quantity > Number.MAX_SAFE_INTEGER) {
       return this.generateRejectedQuote(
         request,
         product,
@@ -53,7 +54,15 @@ export class NegotiationEngine {
       );
     }
 
+    if (this.network === 'nano' && !this.payTo?.startsWith('nano_')) {
+      return this.generateRejectedQuote(request, product, 'Nano settlement requires a nano_ pay-to address');
+    }
+    if (this.network === 'nano' && product.currency.toUpperCase() !== 'XNO') {
+      return this.generateRejectedQuote(request, product, 'Nano settlement requires prices quoted in XNO');
+    }
+
     const basePrice = product.basePrice;
+    const isXno = product.currency.toUpperCase() === 'XNO';
     let effectiveUnitPrice = basePrice;
     let appliedDiscountPercent = 0;
 
@@ -94,9 +103,8 @@ export class NegotiationEngine {
         const volumeFactor = Math.min(1, Math.log10(request.quantity + 1) * volumeSens);
         
         // Counter-offer bridges the gap weighted by volume
-        const counterPrice = Number(
-          (minPrice + (effectiveUnitPrice - minPrice) * (1 - volumeFactor * 0.5)).toFixed(2)
-        );
+        const curvePrice = minPrice + (effectiveUnitPrice - minPrice) * (1 - volumeFactor * 0.5);
+        const counterPrice = isXno ? curvePrice : Number(curvePrice.toFixed(2));
 
         if (proposed >= counterPrice) {
           effectiveUnitPrice = proposed;
@@ -121,14 +129,26 @@ export class NegotiationEngine {
       reason = 'Fixed pricing policy in effect. Negotiation not enabled for this SKU.';
     }
 
-    const totalPrice = Number((effectiveUnitPrice * request.quantity).toFixed(2));
-    const baseTotal = Number((basePrice * request.quantity).toFixed(2));
-    const savings = Number((baseTotal - totalPrice).toFixed(2));
+    const totalRaw = isXno ? xnoTotal(effectiveUnitPrice, request.quantity) : 0n;
+    if (this.network === 'nano' && totalRaw <= 0n) {
+      return this.generateRejectedQuote(request, product, 'Nano settlement amount must be above zero');
+    }
+    const baseRaw = isXno ? xnoTotal(basePrice, request.quantity) : 0n;
+    const totalPrice = isXno ? rawToXno(totalRaw)
+      : Number((effectiveUnitPrice * request.quantity).toFixed(2));
+    const savings = isXno ? rawToXno(baseRaw - totalRaw)
+      : Number((Number((basePrice * request.quantity).toFixed(2)) - Number(totalPrice)).toFixed(2));
 
     const quoteId = 'ucp_quote_' + crypto.randomBytes(12).toString('hex');
     const now = new Date();
     const issuedAt = now.toISOString();
     const expiresAt = new Date(now.getTime() + this.defaultTtlSeconds * 1000).toISOString();
+
+    const settlementInstructions: SignedQuote['settlementInstructions'] = {
+      protocol: this.defaultProtocol,
+      payTo: this.payTo,
+      network: this.network
+    };
 
     const signature = this.signQuotePayload({
       quoteId,
@@ -138,7 +158,8 @@ export class NegotiationEngine {
       currency: product.currency,
       expiresAt,
       agentId: request.agentId,
-      clientNonce: request.clientNonce
+      clientNonce: request.clientNonce,
+      settlementInstructions
     });
 
     return {
@@ -157,11 +178,7 @@ export class NegotiationEngine {
       issuedAt,
       expiresAt,
       signature,
-      settlementInstructions: {
-        protocol: this.defaultProtocol,
-        payTo: this.payTo,
-        network: this.network
-      }
+      settlementInstructions
     };
   }
 
@@ -190,11 +207,14 @@ export class NegotiationEngine {
         currency: quote.currency,
         expiresAt: quote.expiresAt,
         agentId: quote.agentId,
-        clientNonce: quote.clientNonce
+        clientNonce: quote.clientNonce,
+        settlementInstructions: quote.settlementInstructions
       });
 
       const expectedBuf = Buffer.from(expectedSig, 'hex');
-      const actualBuf = Buffer.from(quote.signature, 'hex');
+      // Buffer's hex decoder silently truncates at invalid characters or an odd nibble.
+      const actualBuf = typeof quote.signature === 'string' && quote.signature.length === 64 && /^[0-9a-f]{64}$/.test(quote.signature)
+        ? Buffer.from(quote.signature, 'hex') : Buffer.alloc(0);
 
       if (expectedBuf.length !== actualBuf.length || !crypto.timingSafeEqual(expectedBuf, actualBuf)) {
         return {
@@ -265,21 +285,38 @@ export class NegotiationEngine {
     quoteId: string;
     sku: string;
     quantity: number;
-    totalPrice: number;
+    totalPrice: number | string;
     currency: string;
     expiresAt: string;
     agentId: string;
     clientNonce: string;
+    settlementInstructions: SignedQuote['settlementInstructions'];
   }): string {
+    if (!Number.isFinite(payload.quantity) || payload.quantity <= 0 || payload.quantity > Number.MAX_SAFE_INTEGER) {
+      throw new Error('Quote quantity must be positive and within the binary64 safe integer range');
+    }
+    const settlement = payload.settlementInstructions || { protocol: this.defaultProtocol };
     const serialized = [
       payload.quoteId,
       payload.sku,
       payload.quantity.toString(),
-      payload.totalPrice.toFixed(2),
+      payload.currency.toUpperCase() === 'XNO' ? xnoToRaw(payload.totalPrice)
+        : Number(payload.totalPrice).toFixed(2),
       payload.currency.toUpperCase(),
       payload.expiresAt,
       payload.agentId,
-      payload.clientNonce
+      payload.clientNonce,
+      // Where the money goes is part of the quote. Left out of the signature, a
+      // payer edits settlementInstructions.payTo to an account they control,
+      // pays themselves, and the signature still verifies. Serialized as a JSON
+      // array so no field value can impersonate the ':' delimiter.
+      JSON.stringify([
+        settlement.protocol,
+        settlement.payTo ?? '',
+        settlement.network ?? '',
+        settlement.token ?? '',
+        settlement.checkoutUrl ?? ''
+      ])
     ].join(':');
 
     return crypto.createHmac('sha256', this.secretKey).update(serialized).digest('hex');

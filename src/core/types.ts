@@ -147,10 +147,11 @@ export interface SignedQuote {
   sku: string;
   quantity: number;
   unitPrice: number;
-  totalPrice: number;
+  /** XNO totals are exact decimal strings; other currencies retain numeric totals. */
+  totalPrice: number | string;
   currency: string;
   discountPercent: number;
-  savings: number;
+  savings: number | string;
   agentId: string;
   clientNonce: string;
   status: 'accepted' | 'counter_offer' | 'rejected';
@@ -200,7 +201,7 @@ export interface PaymentProof {
 export interface PaymentVerificationResult {
   verified: boolean;
   receiptId?: string;
-  amount?: number;
+  amount?: number | string;
   currency?: string;
   payerId?: string;
   error?: string;
