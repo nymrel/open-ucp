@@ -35,7 +35,7 @@ assert.match(npmUserAgent, /(?:^|\s)npm\/12\.0\.2(?:\s|$)/u, "npm 12.0.2 is requ
 
 const pyproject = read("pyproject.toml");
 for (const marker of [
-  'requires = ["setuptools==84.0.0"]',
+  'requires = ["setuptools==84.2.0"]',
   'requires-python = ">=3.11,<3.15"',
   'license = "MIT"',
   'where = ["python"]',
