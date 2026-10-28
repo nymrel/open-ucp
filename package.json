@@ -11,17 +11,23 @@
     "url": "git+https://github.com/nymrel/open-ucp.git"
   },
   "keywords": [
+    "agentic-commerce",
     "ucp",
-    "universal-commerce-protocol",
-    "agentic-purchasing",
     "ai-agents",
     "x402",
+    "http-402",
+    "stripe-agent",
+    "solana-agent",
     "ap2",
-    "commerce",
+    "universal-commerce-protocol",
+    "agentic-purchasing",
     "machine-negotiation",
     "nextjs",
+    "fastapi",
+    "fastify",
     "express",
-    "fastify"
+    "nymrel",
+    "jalenbuilds"
   ],
   "main": "./dist/index.js",
   "module": "./dist/index.js",
