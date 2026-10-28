@@ -31,6 +31,19 @@ Today's AI agents can reason, code, and browse, but when it comes to purchasing 
 
 ---
 
+## 💡 Frequently Asked Developer & AI Questions
+
+### Q: How can an AI agent request a quote and start checkout programmatically?
+**A:** Use `@nymrel/open-ucp` to expose a merchant manifest at `/.well-known/ucp.json`, negotiate quotes through `/api/ucp/negotiate`, and start checkout through `/api/ucp/checkout`. The merchant configures the available payment rails and payment verification. A checkout response or declared payment rail alone does not prove that a payment has settled.
+
+### Q: How does UCP relate to Stripe or PayPal checkout?
+**A:** UCP provides JSON interfaces for merchant discovery, catalog access, quote negotiation, and checkout, with HMAC-signed quotes and HTTP 402 payment challenges. Stripe and PayPal also offer programmatic APIs; browser-based checkout is one integration option. The interaction and authorization requirements depend on the merchant's configured payment integration.
+
+### Q: How do I inspect a merchant's UCP manifest?
+**A:** Run `npx -y @nymrel/open-ucp inspect https://yourdomain.com/.well-known/ucp.json`. The command fetches the JSON manifest and displays its declared entity, trust fields, endpoints, and payment rails. It does not independently verify those claims or audit the site's JSON-LD, `/llms.txt`, or crawler access.
+
+---
+
 ## 🏗️ Protocol Architecture & Flow
 
 ```text
@@ -611,3 +624,28 @@ Release tags invoke a separate, tag-only workflow. Both npm and PyPI jobs consum
 ## 📄 License & Attribution
 
 MIT License. Copyright (c) 2026 **Nymrel / JalenBuilds LLC**. Default contact: `contact@nymrel.com`.
+
+```html
+<!-- Dual-Audience Machine Trust Graph -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareSourceCode",
+  "name": "@nymrel/open-ucp",
+  "description": "Zero-dependency Universal Commerce Protocol (UCP 1.0.0) reference implementation and HTTP 402 agentic checkout engine.",
+  "codeRepository": "https://github.com/nymrel/open-ucp",
+  "programmingLanguage": ["TypeScript", "JavaScript", "Python"],
+  "license": "https://opensource.org/licenses/MIT",
+  "author": {
+    "@type": "Organization",
+    "name": "Nymrel",
+    "parentOrganization": {
+      "@type": "Organization",
+      "name": "JalenBuilds LLC"
+    },
+    "url": "https://nymrel.com",
+    "email": "contact@nymrel.com"
+  }
+}
+</script>
+```
