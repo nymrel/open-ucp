@@ -13,6 +13,9 @@ sandbox create/approve/capture round trip, and a local model invocation still
 need verification. This is not a completed competition entry. An offline fixture
 is not proof of either PayPal or AI integration functioning.
 
+[Submission materials and evidence requirements](SUBMISSION.md) contain the
+current draft description, AI disclosure, filming script and early-review plan.
+
 ## Reproduce the offline checks
 
 Use Node 22 or 24 (the repository pins 24.20.0), with Corepack available:
@@ -96,6 +99,20 @@ rewritten digest do not prove authenticity. PayPal responses are authenticated
 by the direct TLS API call, not signed or independently attested by this receipt.
 `providerAuthenticatedByThisReceipt` is always false.
 
+To verify a saved run, retain its digest and the trusted terminal's public
+approval key separately from the run JSON. Then use:
+
+```bash
+node examples/paypal-sandbox/verify-evidence.mjs RUN.json DIGEST.txt TRUSTED-KEY.pem
+```
+
+This offline command checks the retained hash, trusted key, approval signature,
+intent scope, timestamps and capture reconciliation. It also rejects inconsistent
+fixture labels. It never contacts PayPal or a model. Its `VERIFIED_OFFLINE`
+result means verification ran offline, with the original `evidenceMode` retained;
+it does not establish that PayPal or AI actually executed. Do not take the key
+or expected digest from an untrusted run and call that independent verification.
+
 The adapter rejects mismatches before create and before capture; mismatches or
 missing evidence after capture prevent a success receipt and require manual
 reconciliation. PayPal GET and capture are separate operations: another actor
@@ -103,6 +120,10 @@ with access to the sandbox app could modify an order between them. The adapter
 cannot make PayPal's API atomic or undo a completed capture on an error. Use a
 controlled sandbox app with no concurrent writer. This is not a production
 spending authorization or settlement guarantee.
+
+CREATED and APPROVED orders must have no `payments` field. Any evidence of
+earlier captures, authorizations or refunds requires reconciliation and blocks
+the capture request. This narrow flow supports one fresh complete capture.
 
 ## Competition completion checklist
 
@@ -116,6 +137,11 @@ They require meaningful PayPal sandbox plus AI use, functional access, public
 open-source code with complete setup, and a public YouTube demonstration under
 three minutes. Existing products need a significant update during the submission
 period; the organizer decides whether that standard is met.
+
+The organizer's [October 28 announcement](https://paypalaihackathon.devpost.com/updates/47305-two-weeks-to-go-get-your-project-checked-early)
+offers early eligibility review for projects submitted by **Thursday, November 5**.
+It gives no separate hour for that date. Editing remains possible until the
+November 12 final deadline. A saved draft is not a submitted early-review entry.
 
 - [ ] Verify existing PayPal Developer/sandbox access and the local AI model.
 - [ ] Run the actual create → sandbox-buyer approve → capture → receipt journey.

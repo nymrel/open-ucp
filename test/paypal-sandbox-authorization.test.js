@@ -122,6 +122,7 @@ test('tampering or relabeling a fixture is detected against independently pinned
 });
 test('a valid approval and body are required before CREATED/APPROVED order checks',()=>{
   const {intent,order}=fixture();order.status='APPROVED';
+  delete order.purchase_units[0].payments;
   assert.equal(reconcileOrder(intent,order,'APPROVED').status,'APPROVED');
   delete order.purchase_units[0].items;assert.throws(()=>reconcileOrder(intent,order,'APPROVED'));
 });
@@ -150,6 +151,19 @@ test('transport lifecycle validates approved/final orders and forbids replay',as
   const another=new PayPalSandboxClient(f.options);await assert.rejects(()=>another.create(f.intent,f.approval));
   assert.equal(f.calls.length,4);
 });
+for (const stage of ['created','approved']) for (const kind of ['captures','authorizations','refunds'])
+  test(`${stage} order with prior ${kind} fails before capture POST`,async()=>{
+    const f=lifecycle();
+    f.queue[stage==='created'?0:1].purchase_units[0].payments={
+      [kind]:[{id:'PRIORPAYMENT',status:'COMPLETED',amount:{currency_code:'USD',value:'8.00'}}],
+    };
+    const client=new PayPalSandboxClient(f.options);
+    if(stage==='created') await assert.rejects(()=>client.create(f.intent,f.approval));
+    else {await client.create(f.intent,f.approval);await assert.rejects(()=>client.capture());}
+    assert.equal(client.state,'reconciliation-required');
+    assert.equal(f.calls.length,stage==='created'?1:2);
+    assert.ok(!f.calls.some(call=>call.url.endsWith('/capture')));
+  });
 test('invalid approvals fail before reservation or any network request',async()=>{
   const f=lifecycle();let reserved=false;f.options.reserveIntent=async()=>{reserved=true;return true;};
   const client=new PayPalSandboxClient(f.options);

@@ -20,6 +20,11 @@ export function reconcileOrder(intent: PurchaseIntent, raw: unknown, status: 'CR
   validateIntent(intent);
   const order = record(raw), unit = one(order.purchase_units), item = one(unit.items);
   requireCondition(order.intent === 'CAPTURE' && order.status === status, 'Unexpected order state');
+  // This adapter permits one new, complete capture only. Never ignore evidence
+  // of earlier settlement merely because the order still says APPROVED.
+  if (status !== 'COMPLETED') {
+    requireCondition(!Object.hasOwn(unit, 'payments'), 'Order already contains payment evidence; reconciliation required');
+  }
   requireCondition(unit.reference_id === intent.intentId && unit.custom_id === intentDigest(intent), 'Observed intent binding mismatch');
   requireCondition(record(unit.payee).merchant_id === intent.merchantId, 'Observed merchant mismatch');
   amount(unit.amount, intent.exactAmount);
