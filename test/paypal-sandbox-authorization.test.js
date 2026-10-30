@@ -199,6 +199,50 @@ test('expiry while fetching approval blocks capture POST',async()=>{
   const client=new PayPalSandboxClient(f.options);await client.create(f.intent,f.approval);
   await assert.rejects(()=>client.capture());assert.equal(f.calls.length,2);
 });
+const unsupportedInstructions = {
+  platformFee: {platform_fees:[{amount:{currency_code:'USD',value:'1.00'},payee:{merchant_id:'OTHER'}}]},
+  delayedDisbursement: {disbursement_mode:'DELAYED'},
+  specialPricing: {payee_pricing_tier_id:'UNAPPROVED'},
+  specialFx: {payee_receivable_fx_rate_id:'UNAPPROVED'},
+};
+for (const stage of ['created','approved','completed']) for (const [name,instruction] of Object.entries(unsupportedInstructions))
+  test(`${stage} order rejects unapproved ${name} instructions`,async()=>{
+    const f=lifecycle();
+    if(stage==='completed') {
+      for(const order of [f.input.order,f.input.captureResponse]) order.purchase_units[0].payment_instruction=instruction;
+      assert.throws(()=>createReceipt(f.input));
+    } else {
+      f.queue[stage==='created'?0:1].purchase_units[0].payment_instruction=instruction;
+      const client=new PayPalSandboxClient(f.options);
+      if(stage==='created') await assert.rejects(()=>client.create(f.intent,f.approval));
+      else {await client.create(f.intent,f.approval);await assert.rejects(()=>client.capture());}
+      assert.equal(client.state,'reconciliation-required');
+      assert.ok(!f.calls.some(call=>call.url.endsWith('/capture')));
+    }
+  });
+for(const [name,mutate] of Object.entries({
+  platformFee:c=>{c.seller_receivable_breakdown={platform_fees:[{amount:{currency_code:'USD',value:'1.00'}}]};},
+  delayedDisbursement:c=>{c.disbursement_mode='DELAYED';},
+})) test(`completed capture rejects unapproved ${name} evidence`,()=>{
+  const f=lifecycle();
+  for(const order of [f.input.order,f.input.captureResponse]) mutate(order.purchase_units[0].payments.captures[0]);
+  assert.throws(()=>createReceipt(f.input));
+});
+test('provider default instant disbursement and ordinary processing fees remain compatible',async()=>{
+  const f=lifecycle();
+  for(const order of f.queue) {
+    order.purchase_units[0].payment_instruction={disbursement_mode:'INSTANT'};
+    const capture=order.purchase_units[0].payments?.captures[0];
+    if(capture) {
+      capture.disbursement_mode='INSTANT';
+      capture.seller_receivable_breakdown={gross_amount:{currency_code:'USD',value:'8.00'},
+        paypal_fee:{currency_code:'USD',value:'0.50'},net_amount:{currency_code:'USD',value:'7.50'}};
+    }
+  }
+  const client=new PayPalSandboxClient(f.options);
+  await client.create(f.intent,f.approval);
+  assert.equal((await client.capture()).outcome,'sandbox-capture-completed');
+});
 test('runnable fixture demo reports fixture provenance and a verifiable receipt',()=>{
   const run=spawnSync(process.execPath,['examples/paypal-sandbox/demo.mjs','--fixture'],{encoding:'utf8'});
   assert.equal(run.status,0,run.stderr);

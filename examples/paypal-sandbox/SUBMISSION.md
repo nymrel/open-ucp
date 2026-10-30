@@ -57,6 +57,12 @@ Ollama/terminal example, documentation and adversarial tests. The October 29
 continuation rejects pre-existing payment evidence before capture and adds the
 saved-evidence verifier and submission materials. These are additions to the
 existing product. No new core protocol or new application is claimed.
+The further source review adds rejection of unapproved platform-fee, special
+pricing/FX and delayed-disbursement instructions in observed order/capture
+evidence. Ordinary provider processing fees and default instant disbursement
+remain permitted. Fourteen adversarial response cases reproduced the missing
+rejection before the fix; these are fixture tests, not a demonstrated provider
+vulnerability.
 
 ### Current evidence and limits
 

@@ -125,6 +125,15 @@ CREATED and APPROVED orders must have no `payments` field. Any evidence of
 earlier captures, authorizations or refunds requires reconciliation and blocks
 the capture request. This narrow flow supports one fresh complete capture.
 
+The signed scope also grants no platform fees, special pricing/FX instructions
+or delayed disbursement. Observed order `payment_instruction` may be absent,
+empty or contain only the provider's default `disbursement_mode: INSTANT`.
+Other instructions stop the flow. Completed capture evidence with platform fees
+or non-INSTANT disbursement cannot produce a success receipt. Ordinary PayPal
+processing fees are permitted; the approved amount is the buyer's gross amount,
+not a promise about the merchant's net proceeds. These are tested response
+policies, not evidence of a provider exploit or a genuine sandbox transaction.
+
 ## Competition completion checklist
 
 Tracking issue: [portfolio-control #406](https://github.com/JalenBuildsHub/portfolio-control/issues/406).

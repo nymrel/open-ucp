@@ -20,6 +20,14 @@ export function reconcileOrder(intent: PurchaseIntent, raw: unknown, status: 'CR
   validateIntent(intent);
   const order = record(raw), unit = one(order.purchase_units), item = one(unit.items);
   requireCondition(order.intent === 'CAPTURE' && order.status === status, 'Unexpected order state');
+  // The approved intent contains no platform fee, special pricing, FX override
+  // or delayed release. A matching gross amount/payee must not hide those.
+  if (Object.hasOwn(unit, 'payment_instruction')) {
+    const instruction = record(unit.payment_instruction);
+    requireCondition(Object.keys(instruction).every(key => key === 'disbursement_mode') &&
+      (!Object.hasOwn(instruction, 'disbursement_mode') || instruction.disbursement_mode === 'INSTANT'),
+    'Unsupported payment instructions; reconciliation required');
+  }
   // This adapter permits one new, complete capture only. Never ignore evidence
   // of earlier settlement merely because the order still says APPROVED.
   if (status !== 'COMPLETED') {
@@ -46,6 +54,12 @@ export function reconcileOrder(intent: PurchaseIntent, raw: unknown, status: 'CR
 function successfulCapture(intent: PurchaseIntent, raw: unknown, approvedAt: string) {
   const capture = record(raw);
   requireCondition(capture.status === 'COMPLETED' && capture.final_capture === true, 'Capture is not final and completed');
+  requireCondition(!Object.hasOwn(capture, 'disbursement_mode') || capture.disbursement_mode === 'INSTANT',
+    'Unsupported capture disbursement; reconciliation required');
+  if (Object.hasOwn(capture, 'seller_receivable_breakdown')) {
+    requireCondition(!Object.hasOwn(record(capture.seller_receivable_breakdown), 'platform_fees'),
+      'Unapproved platform fee; reconciliation required');
+  }
   amount(capture.amount, intent.exactAmount);
   const at = instant(capture.create_time);
   requireCondition(at >= instant(approvedAt) && at < instant(intent.expiresAt), 'Capture outside approval lifetime');
