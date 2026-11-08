@@ -37,6 +37,50 @@ function init(cwd, args = [], nodeArgs = []) {
   return result.stdout;
 }
 
+test('CLI validate reports failure only when validation errors exist', (t) => {
+  const { cwd, target } = fixture(t);
+  const run = () => spawnSync(process.execPath, [cli, 'validate', target], { cwd, encoding: 'utf8' });
+  writeFileSync(target, '{}');
+  const invalid = run();
+  assert.match(invalid.stdout, /\[ERROR\]/);
+  assert.equal(invalid.status, 1);
+
+  init(cwd, ['--force']);
+  const valid = run();
+  assert.equal(valid.status, 0);
+  assert.doesNotMatch(valid.stdout, /\[ERROR\]|\[WARN\]/);
+  assert.match(valid.stdout, /Manifest checks passed/);
+  assert.doesNotMatch(valid.stdout, /100% Protocol Compliant/);
+
+  const config = JSON.parse(readFileSync(target, 'utf8'));
+  delete config.manifest.entity.parentOrganization;
+  writeFileSync(target, JSON.stringify(config));
+  const warningsOnly = run();
+  assert.match(warningsOnly.stdout, /\[WARN\]/);
+  assert.doesNotMatch(warningsOnly.stdout, /\[ERROR\]/);
+  assert.equal(warningsOnly.status, 0);
+});
+
+test('CLI validate applies machine-action URL rules', (t) => {
+  const { cwd, target } = fixture(t);
+  init(cwd);
+  const config = JSON.parse(readFileSync(target, 'utf8'));
+  for (const [field, value] of [
+    ['checkout', '/\\evil.example/path'],
+    ['catalog', 'https://evil.example/catalog'],
+    ['llmsTxtUrl', '//evil.example/llms.txt']
+  ]) {
+    const modified = structuredClone(config);
+    if (field === 'llmsTxtUrl') modified.manifest[field] = value;
+    else modified.manifest.endpoints[field] = value;
+    writeFileSync(target, JSON.stringify(modified));
+    const result = spawnSync(process.execPath, [cli, 'validate', target], { cwd, encoding: 'utf8' });
+    assert.equal(result.status, 1, `${field}: ${result.stdout}`);
+    assert.match(result.stdout, new RegExp(field));
+    assert.match(result.stdout, /\[ERROR\]/);
+  }
+});
+
 test('CLI init creates the starter configuration with supplied merchant fields', (t) => {
   const { cwd, target } = fixture(t);
   const output = init(cwd, ['--name', 'Fixture Merchant', '--email', 'fixture@example.com']);

@@ -448,6 +448,19 @@ describe('7. Canonical Origin Verification', () => {
     assert.ok(issuePaths(res).includes('llmsTxtUrl'));
   });
 
+  test('rejects backslashes in rooted machine-action paths', () => {
+    for (const value of ['/\\evil.example/path', '/api\\checkout']) {
+      for (const key of ['catalog', 'negotiate', 'quote', 'checkout', 'verifyPayment', 'webhook', 'llmsTxtUrl']) {
+        const res = validateMutation(m => {
+          if (key === 'llmsTxtUrl') m.llmsTxtUrl = value;
+          else m.endpoints[key] = value;
+        });
+        assert.strictEqual(res.valid, false, `${key}: ${value}`);
+        assert.ok(issuePaths(res).includes(key === 'llmsTxtUrl' ? key : `endpoints.${key}`));
+      }
+    }
+  });
+
   test('rejects absolute HTTPS endpoint URLs when canonical origin cannot be established', () => {
     for (const url of ['http://nymrel.com', 'https://localhost', 'https://192.168.1.10', 'https://user:pass@nymrel.com', 'not-a-url']) {
       const res = validateMutation(m => {

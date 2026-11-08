@@ -566,6 +566,8 @@ open-ucp quote --sku "ai-compute-tier1" --qty 200 --price 0.075
 open-ucp inspect https://example.com
 ```
 
+`validate` runs the shared manifest checks and exits with status 1 for errors; warnings alone do not cause failure. These checks do not verify payment settlement or live endpoint behavior. When running the CLI from a source checkout, run `npm run build` first.
+
 ---
 
 ## 🛡️ Dual-Audience Machine Trust & Governance

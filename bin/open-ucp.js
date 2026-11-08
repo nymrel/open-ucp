@@ -272,50 +272,37 @@ async function handleValidate(args) {
     process.exit(1);
   }
 
-  const manifest = parsed.manifest || parsed;
-  const products = parsed.products || [];
-
-  // Run validation
-  const errors = [];
-  const warnings = [];
-
-  if (!manifest.ucpVersion) errors.push('Missing ucpVersion');
-  if (!manifest.protocol || !manifest.protocol.startsWith('UCP/')) errors.push('Invalid protocol identifier (must start with UCP/)');
-  if (!manifest.entity?.name) errors.push('Missing entity.name');
-  if (!manifest.entity?.url) errors.push('Missing entity.url');
-  if (!manifest.entity?.contactEmail) errors.push('Missing entity.contactEmail');
-  if (!manifest.entity?.parentOrganization?.name) warnings.push('Missing entity.parentOrganization.name (Machine Trust)');
-  if (!manifest.entity?.parentOrganization?.legalEntity) warnings.push('Missing entity.parentOrganization.legalEntity');
-  if (!manifest.endpoints?.catalog) errors.push('Missing endpoints.catalog');
-  if (!manifest.endpoints?.negotiate) errors.push('Missing endpoints.negotiate');
-  if (!manifest.endpoints?.checkout) errors.push('Missing endpoints.checkout');
-  if (!manifest.paymentRails || !Object.values(manifest.paymentRails).some(r => r?.enabled)) {
-    errors.push('No payment rails enabled in paymentRails config');
+  const manifest = parsed?.manifest ?? parsed;
+  const products = parsed?.products || [];
+  const validatorPath = path.join(__dirname, '..', 'dist', 'validator', 'manifest-validator.js');
+  if (!fs.existsSync(validatorPath)) {
+    console.error('[x] Manifest validator is unavailable. Build the package with npm run build.');
+    process.exitCode = 1;
+    return;
   }
-
-  const score = Math.max(0, 100 - errors.length * 20 - warnings.length * 5);
+  const { ManifestValidator } = await import('../dist/validator/manifest-validator.js');
+  const { valid, issues, score } = ManifestValidator.validate(manifest);
 
   console.log('\n======================================================');
   console.log(`  UCP VALIDATION REPORT - SCORE: ${score >= 80 ? '\x1b[32m' : '\x1b[33m'}${score}/100\x1b[0m`);
   console.log('======================================================');
-  console.log(`  Entity:              ${manifest.entity?.name || 'Unknown'}`);
-  console.log(`  Parent Entity:       ${manifest.entity?.parentOrganization?.legalEntity || 'N/A'}`);
-  console.log(`  Machine Trust Score: ${manifest.entity?.machineTrustScore ?? 'N/A'}`);
-  console.log(`  Payment Rails:       ${Object.keys(manifest.paymentRails || {}).filter(k => manifest.paymentRails[k]?.enabled).join(', ')}`);
-  console.log(`  Product Offers:      ${products.length}`);
+  console.log(`  Entity:              ${manifest?.entity?.name || 'Unknown'}`);
+  console.log(`  Parent Entity:       ${manifest?.entity?.parentOrganization?.legalEntity || 'N/A'}`);
+  console.log(`  Machine Trust Score: ${manifest?.entity?.machineTrustScore ?? 'N/A'}`);
+  console.log(`  Payment Rails:       ${Object.keys(manifest?.paymentRails || {}).filter(k => manifest.paymentRails[k]?.enabled).join(', ')}`);
+  console.log(`  Product Offers:      ${Array.isArray(products) ? products.length : 0}`);
   console.log('------------------------------------------------------');
 
-  if (errors.length === 0 && warnings.length === 0) {
-    console.log('\x1b[32m  ✓ 100% Protocol Compliant! Ready for autonomous agent commerce.\x1b[0m');
+  if (issues.length === 0) {
+    console.log('\x1b[32m  ✓ Manifest checks passed.\x1b[0m');
   } else {
-    for (const e of errors) {
-      console.log(`  \x1b[31m[ERROR]\x1b[0m ${e}`);
-    }
-    for (const w of warnings) {
-      console.log(`  \x1b[33m[WARN]\x1b[0m  ${w}`);
+    for (const issue of issues) {
+      const label = issue.severity === 'error' ? '\x1b[31m[ERROR]' : '\x1b[33m[WARN]';
+      console.log(`  ${label}\x1b[0m ${issue.path ? `${issue.path}: ` : ''}${issue.message}`);
     }
   }
   console.log('======================================================\n');
+  if (!valid) process.exitCode = 1;
 }
 
 async function handleServe(args) {
