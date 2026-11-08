@@ -79,6 +79,8 @@ def _check_machine_action_url(value: str, canonical_origin: Optional[str]) -> Tu
     if value.startswith("//"):
         return False, "protocol-relative URLs are ambiguous; use a rooted relative path or an absolute HTTPS URL on the entity origin"
     if value.startswith("/"):
+        if "\\" in value:
+            return False, "relative path must not contain backslashes"
         if any(c.isspace() for c in value):
             return False, "relative path must not contain whitespace"
         return True, None

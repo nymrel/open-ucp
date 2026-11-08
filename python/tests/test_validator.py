@@ -104,6 +104,19 @@ class TestCanonicalOriginVerification(unittest.TestCase):
         self.assertFalse(result["valid"])
         self.assertIn("llmsTxtUrl", self.issue_paths(result))
 
+    def test_backslashes_in_rooted_machine_action_paths_rejected(self):
+        for value in ["/\\evil.example/path", "/api\\checkout"]:
+            for key in ["catalog", "negotiate", "quote", "checkout", "verifyPayment", "webhook", "llmsTxtUrl"]:
+                with self.subTest(value=value, key=key):
+                    def mutate(m):
+                        if key == "llmsTxtUrl":
+                            m[key] = value
+                        else:
+                            m["endpoints"][key] = value
+                    result = self.validate_mutation(mutate)
+                    self.assertFalse(result["valid"])
+                    self.assertIn(key if key == "llmsTxtUrl" else f"endpoints.{key}", self.issue_paths(result))
+
     def test_absolute_https_endpoints_rejected_when_canonical_origin_unavailable(self):
         for url in ["http://nymrel.com", "https://localhost", "https://192.168.1.10", "https://user:pass@nymrel.com", "not-a-url"]:
             with self.subTest(url=url):

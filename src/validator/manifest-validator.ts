@@ -125,6 +125,9 @@ function checkMachineActionUrl(value: string, canonicalOrigin: string | null): U
     return { ok: false, reason: 'protocol-relative URLs are ambiguous; use a rooted relative path or an absolute HTTPS URL on the entity origin' };
   }
   if (value.startsWith('/')) {
+    if (value.includes('\\')) {
+      return { ok: false, reason: 'relative path must not contain backslashes' };
+    }
     if (/\s/.test(value)) {
       return { ok: false, reason: 'relative path must not contain whitespace' };
     }
