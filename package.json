@@ -64,7 +64,7 @@
     "prepublishOnly": "node scripts/verify-toolchain.mjs && tsc --noEmit && tsc && node test/run.mjs && node --test test/ci-contract.test.mjs"
   },
   "devDependencies": {
-    "@types/node": "26.6.5",
+    "@types/node": "26.6.6",
     "typescript": "7.0.2"
   },
   "engines": {
